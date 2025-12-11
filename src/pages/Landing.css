@@ -1,0 +1,447 @@
+/* AngelPDF Landing Page Styles */
+/* File: src/pages/Landing.css */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+.angelpdf-landing {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  min-height: 100vh;
+  background: #ffffff;
+  color: #1a1a2e;
+}
+
+.angelpdf-landing * {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.angelpdf-landing .container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* Header */
+.landing-header {
+  padding: 24px 0;
+  border-bottom: 1px solid #f0f0f5;
+}
+
+.landing-header .header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.angelpdf-landing .logo {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.angelpdf-landing .logo-icon {
+  width: 42px;
+  height: 42px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: white;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.angelpdf-landing .nav-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 10px 24px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.25);
+}
+
+.angelpdf-landing .nav-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+}
+
+/* Hero Section */
+.angelpdf-landing .hero {
+  text-align: center;
+  padding: 70px 0 50px;
+}
+
+.angelpdf-landing .hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  border: 1px solid rgba(102, 126, 234, 0.2);
+  padding: 8px 18px;
+  border-radius: 50px;
+  font-size: 0.85rem;
+  color: #667eea;
+  margin-bottom: 24px;
+}
+
+.angelpdf-landing .hero-badge span {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+}
+
+.angelpdf-landing .hero h1 {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #667eea 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.angelpdf-landing .hero .subtitle {
+  font-size: 1.25rem;
+  color: #64648c;
+  font-weight: 500;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Upload Section */
+.angelpdf-landing .upload-section {
+  padding: 40px 0;
+}
+
+.angelpdf-landing .upload-card {
+  background: #ffffff;
+  border: 1px solid #e8e8f0;
+  border-radius: 24px;
+  padding: 8px;
+  max-width: 650px;
+  margin: 0 auto;
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.08);
+}
+
+.angelpdf-landing .upload-area {
+  border: 2px dashed #d0d0e0;
+  border-radius: 20px;
+  padding: 50px 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #fafafc;
+}
+
+.angelpdf-landing .upload-area:hover {
+  border-color: #667eea;
+  background: #f5f5ff;
+}
+
+.angelpdf-landing .upload-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 15px 35px rgba(102, 126, 234, 0.3);
+}
+
+.angelpdf-landing .upload-icon svg {
+  width: 36px;
+  height: 36px;
+  color: white;
+}
+
+.angelpdf-landing .upload-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-bottom: 8px;
+}
+
+.angelpdf-landing .upload-subtitle {
+  font-size: 0.95rem;
+  color: #64648c;
+  margin-bottom: 20px;
+}
+
+.angelpdf-landing .browse-btn {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 14px 36px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 1rem;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.angelpdf-landing .browse-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 35px rgba(102, 126, 234, 0.4);
+  color: white;
+}
+
+.angelpdf-landing .supported-formats {
+  margin-top: 20px;
+  font-size: 0.8rem;
+  color: #9090a7;
+}
+
+.angelpdf-landing .format-tags {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.angelpdf-landing .format-tag {
+  background: rgba(102, 126, 234, 0.1);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #667eea;
+  font-weight: 600;
+}
+
+/* Middle Tagline */
+.angelpdf-landing .tagline-section {
+  text-align: center;
+  padding: 50px 0;
+}
+
+.angelpdf-landing .tagline-section h2 {
+  font-size: 2.2rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #667eea 0%, #f093fb 50%, #f5576c 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 12px;
+}
+
+.angelpdf-landing .tagline-section p {
+  font-size: 1.1rem;
+  color: #64648c;
+}
+
+.angelpdf-landing .tagline-section .highlight {
+  color: #667eea;
+  font-weight: 700;
+}
+
+/* Tools Section */
+.angelpdf-landing .tools-section {
+  padding: 20px 0 80px;
+}
+
+.angelpdf-landing .section-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.angelpdf-landing .section-header h3 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-bottom: 8px;
+}
+
+.angelpdf-landing .section-header p {
+  color: #64648c;
+}
+
+.angelpdf-landing .tools-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1024px) {
+  .angelpdf-landing .tools-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .angelpdf-landing .tools-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .angelpdf-landing .hero h1 {
+    font-size: 2.5rem;
+  }
+}
+
+@media (max-width: 540px) {
+  .angelpdf-landing .tools-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .angelpdf-landing .hero h1 {
+    font-size: 2rem;
+  }
+  .angelpdf-landing .hero .subtitle {
+    font-size: 1rem;
+  }
+  .angelpdf-landing .tagline-section h2 {
+    font-size: 1.6rem;
+  }
+  .angelpdf-landing .upload-area {
+    padding: 30px 20px;
+  }
+}
+
+.angelpdf-landing .tool-card {
+  background: #ffffff;
+  border: 1px solid #e8e8f0;
+  border-radius: 20px;
+  padding: 28px 16px;
+  text-align: center;
+  text-decoration: none;
+  color: #1a1a2e;
+  transition: all 0.3s ease;
+  position: relative;
+  display: block;
+}
+
+.angelpdf-landing .tool-card:hover {
+  transform: translateY(-6px);
+  border-color: #667eea;
+  box-shadow: 0 15px 40px rgba(102, 126, 234, 0.15);
+}
+
+.angelpdf-landing .tool-icon {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s ease;
+}
+
+.angelpdf-landing .tool-card:hover .tool-icon {
+  transform: scale(1.1);
+}
+
+.angelpdf-landing .tool-icon svg {
+  width: 28px;
+  height: 28px;
+  color: white;
+}
+
+/* Vibrant Icon Colors */
+.angelpdf-landing .icon-merge { 
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.35);
+}
+.angelpdf-landing .icon-split { 
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  box-shadow: 0 8px 20px rgba(240, 147, 251, 0.35);
+}
+.angelpdf-landing .icon-compress { 
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  box-shadow: 0 8px 20px rgba(79, 172, 254, 0.35);
+}
+.angelpdf-landing .icon-pdf-word { 
+  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  box-shadow: 0 8px 20px rgba(67, 233, 123, 0.35);
+}
+.angelpdf-landing .icon-pdf-ppt { 
+  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  box-shadow: 0 8px 20px rgba(250, 112, 154, 0.35);
+}
+.angelpdf-landing .icon-pdf-excel { 
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  box-shadow: 0 8px 20px rgba(17, 153, 142, 0.35);
+}
+.angelpdf-landing .icon-word-pdf { 
+  background: linear-gradient(135deg, #5ee7df 0%, #b490ca 100%);
+  box-shadow: 0 8px 20px rgba(94, 231, 223, 0.35);
+}
+.angelpdf-landing .icon-ppt-pdf { 
+  background: linear-gradient(135deg, #ff6a88 0%, #ff99ac 100%);
+  box-shadow: 0 8px 20px rgba(255, 106, 136, 0.35);
+}
+.angelpdf-landing .icon-excel-pdf { 
+  background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);
+  box-shadow: 0 8px 20px rgba(161, 140, 209, 0.35);
+}
+.angelpdf-landing .icon-edit { 
+  background: linear-gradient(135deg, #f6d365 0%, #fda085 100%);
+  box-shadow: 0 8px 20px rgba(246, 211, 101, 0.35);
+}
+
+.angelpdf-landing .tool-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.angelpdf-landing .new-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  box-shadow: 0 4px 12px rgba(245, 87, 108, 0.35);
+}
+
+/* Footer */
+.landing-footer {
+  background: #fafafc;
+  border-top: 1px solid #e8e8f0;
+  padding: 30px 0;
+  text-align: center;
+}
+
+.landing-footer p {
+  color: #9090a7;
+  font-size: 0.85rem;
+}
+
+.landing-footer a {
+  color: #667eea;
+  text-decoration: none;
+  transition: color 0.3s;
+  font-weight: 500;
+}
+
+.landing-footer a:hover {
+  color: #764ba2;
+}
+
+.landing-footer .footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin-bottom: 16px;
+}
