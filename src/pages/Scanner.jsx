@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
   Sparkles,
   ChevronDown,
+  Clipboard,
 } from 'lucide-react';
 
 const Scanner = () => {
@@ -73,16 +74,31 @@ const Scanner = () => {
   // Handle paste from clipboard
   useEffect(() => {
     const handlePaste = async (e) => {
+      // Only handle paste on select mode
       if (mode !== 'select') return;
       
-      const items = e.clipboardData?.items;
+      // Check clipboard data
+      const clipboardData = e.clipboardData || window.clipboardData;
+      if (!clipboardData) return;
+      
+      const items = clipboardData.items;
       if (!items) return;
       
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        
+        // Check if it's an image
+        if (item.type.indexOf('image') !== -1) {
           e.preventDefault();
           const file = item.getAsFile();
+          
           if (file) {
+            // Check file size
+            if (file.size > 10 * 1024 * 1024) {
+              setError('Image size should be less than 10MB');
+              return;
+            }
+            setError('');
             setUploadedFile(file);
             setMode('preview');
           }
@@ -91,8 +107,9 @@ const Scanner = () => {
       }
     };
     
-    document.addEventListener('paste', handlePaste);
-    return () => document.removeEventListener('paste', handlePaste);
+    // Add listener to window
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
   }, [mode]);
 
   // Drag and drop handlers
@@ -133,6 +150,39 @@ const Scanner = () => {
       } else {
         setError('Please drop an image file');
       }
+    }
+  };
+
+  // Handle paste button click
+  const handlePasteButton = async () => {
+    try {
+      // Use Clipboard API to read image
+      const clipboardItems = await navigator.clipboard.read();
+      
+      for (const clipboardItem of clipboardItems) {
+        for (const type of clipboardItem.types) {
+          if (type.startsWith('image/')) {
+            const blob = await clipboardItem.getType(type);
+            const file = new File([blob], 'pasted-image.png', { type: type });
+            
+            if (file.size > 10 * 1024 * 1024) {
+              setError('Image size should be less than 10MB');
+              return;
+            }
+            
+            setError('');
+            setUploadedFile(file);
+            setMode('preview');
+            return;
+          }
+        }
+      }
+      
+      setError('No image found in clipboard. Copy an image first!');
+    } catch (err) {
+      console.error('Paste error:', err);
+      // Fallback message if clipboard API fails
+      setError('Could not access clipboard. Try pressing Ctrl+V / Cmd+V instead.');
     }
   };
 
@@ -469,14 +519,24 @@ ${translatedText}
           <p className="font-semibold text-lg mb-1">
             {isDragging ? 'Drop your image here!' : 'Drag & Drop your image here'}
           </p>
-          <p className="text-gray-500 text-sm mb-3">or paste from clipboard (Ctrl+V / Cmd+V)</p>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="text-primary-600 font-medium hover:text-primary-700 underline"
-          >
-            Browse files
-          </button>
-          <p className="text-gray-400 text-xs mt-2">Supports: JPG, PNG, WEBP, TIFF (Max 10MB)</p>
+          <p className="text-gray-500 text-sm mb-4">Supports: JPG, PNG, WEBP, TIFF (Max 10MB)</p>
+          
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors"
+            >
+              Browse Files
+            </button>
+            <button
+              onClick={handlePasteButton}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors flex items-center gap-2"
+            >
+              <Clipboard className="w-4 h-4" />
+              Paste Image
+            </button>
+          </div>
+          <p className="text-gray-400 text-xs mt-3">or press Ctrl+V / Cmd+V to paste</p>
         </div>
       </div>
       
@@ -637,6 +697,14 @@ ${translatedText}
 
   const renderResults = () => (
     <div className="max-w-5xl mx-auto">
+      {/* New Scan Button - Top */}
+      <div className="mb-6 flex justify-end">
+        <button onClick={startNewScan} className="btn-primary">
+          <Camera className="w-5 h-5" />
+          <span>New Scan</span>
+        </button>
+      </div>
+      
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Original image */}
         <div>
