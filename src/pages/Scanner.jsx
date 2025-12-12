@@ -1159,7 +1159,7 @@ ${translatedText}
       </div>
       
       {/* Action buttons */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <button
           onClick={createPDF}
           disabled={processing}
@@ -1168,12 +1168,12 @@ ${translatedText}
           {processing ? (
             <>
               <Loader className="w-5 h-5 animate-spin" />
-              <span>Creating PDF...</span>
+              <span>Creating...</span>
             </>
           ) : (
             <>
-              <FileImage className="w-5 h-5" />
-              <span>Create PDF</span>
+              <Sparkles className="w-5 h-5" />
+              <span>Create Smart AI Enhanced PDF</span>
             </>
           )}
         </button>
