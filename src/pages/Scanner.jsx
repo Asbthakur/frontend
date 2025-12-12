@@ -75,6 +75,8 @@ const Scanner = () => {
   const [highlightColor, setHighlightColor] = useState('rgba(255, 255, 0, 0.4)');
   const [isDrawingHighlight, setIsDrawingHighlight] = useState(false);
   const [highlightStart, setHighlightStart] = useState(null);
+  const [draggingTextId, setDraggingTextId] = useState(null);
+  const [textDragStart, setTextDragStart] = useState(null);
   
   // Refs
   const videoRef = useRef(null);
@@ -607,6 +609,7 @@ const Scanner = () => {
     setCropMode(false);
     setIsAddingText(false);
     setIsDrawingHighlight(false);
+    setActiveTextId(null);
   };
 
   // Toggle highlight mode
@@ -619,7 +622,7 @@ const Scanner = () => {
 
   // Handle tap on image to add text
   const handleImageTapForText = (e) => {
-    if (editorTool !== 'text') return;
+    if (editorTool !== 'text' || isAddingText || draggingTextId) return;
     
     const container = editorContainerRef.current;
     const img = container?.querySelector('img');
@@ -628,6 +631,11 @@ const Scanner = () => {
     const rect = img.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    // Check if tap is within image bounds
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      return;
+    }
     
     const x = ((clientX - rect.left) / rect.width) * 100;
     const y = ((clientY - rect.top) / rect.height) * 100;
@@ -647,7 +655,7 @@ const Scanner = () => {
       y: newTextPosition.y,
       text: newTextValue,
       color: textColor,
-      fontSize: 16
+      fontSize: 18
     };
     
     setTextAnnotations(prev => [...prev, newText]);
@@ -666,7 +674,76 @@ const Scanner = () => {
   // Delete text annotation
   const deleteTextAnnotation = (id) => {
     setTextAnnotations(prev => prev.filter(t => t.id !== id));
+    setActiveTextId(null);
   };
+
+  // Start dragging text
+  const handleTextDragStart = (e, textId) => {
+    if (editorTool !== 'text') return;
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const text = textAnnotations.find(t => t.id === textId);
+    if (!text) return;
+    
+    setDraggingTextId(textId);
+    setActiveTextId(textId);
+    setTextDragStart({
+      mouseX: clientX,
+      mouseY: clientY,
+      textX: text.x,
+      textY: text.y
+    });
+  };
+
+  // Handle text dragging
+  const handleTextDrag = useCallback((e) => {
+    if (!draggingTextId || !textDragStart || !editorContainerRef.current) return;
+    
+    const container = editorContainerRef.current;
+    const img = container?.querySelector('img');
+    if (!img) return;
+    
+    const rect = img.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const deltaX = ((clientX - textDragStart.mouseX) / rect.width) * 100;
+    const deltaY = ((clientY - textDragStart.mouseY) / rect.height) * 100;
+    
+    const newX = Math.max(0, Math.min(95, textDragStart.textX + deltaX));
+    const newY = Math.max(0, Math.min(95, textDragStart.textY + deltaY));
+    
+    setTextAnnotations(prev => prev.map(t => 
+      t.id === draggingTextId ? { ...t, x: newX, y: newY } : t
+    ));
+  }, [draggingTextId, textDragStart]);
+
+  // End text dragging
+  const handleTextDragEnd = useCallback(() => {
+    setDraggingTextId(null);
+    setTextDragStart(null);
+  }, []);
+
+  // Add event listeners for text dragging
+  useEffect(() => {
+    if (draggingTextId) {
+      window.addEventListener('mousemove', handleTextDrag);
+      window.addEventListener('mouseup', handleTextDragEnd);
+      window.addEventListener('touchmove', handleTextDrag);
+      window.addEventListener('touchend', handleTextDragEnd);
+    }
+    
+    return () => {
+      window.removeEventListener('mousemove', handleTextDrag);
+      window.removeEventListener('mouseup', handleTextDragEnd);
+      window.removeEventListener('touchmove', handleTextDrag);
+      window.removeEventListener('touchend', handleTextDragEnd);
+    };
+  }, [draggingTextId, handleTextDrag, handleTextDragEnd]);
 
   // Handle highlight drawing start
   const handleHighlightStart = (e) => {
@@ -680,11 +757,26 @@ const Scanner = () => {
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     
+    // Check if within image bounds
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+      return;
+    }
+    
     const x = ((clientX - rect.left) / rect.width) * 100;
     const y = ((clientY - rect.top) / rect.height) * 100;
     
     setHighlightStart({ x, y });
     setIsDrawingHighlight(true);
+    
+    // Add preview highlight
+    setHighlights(prev => [...prev, {
+      id: 'preview',
+      x: x,
+      y: y,
+      width: 0,
+      height: 0,
+      color: highlightColor
+    }]);
   };
 
   // Handle highlight drawing
@@ -699,10 +791,14 @@ const Scanner = () => {
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     
-    const x = ((clientX - rect.left) / rect.width) * 100;
-    const y = ((clientY - rect.top) / rect.height) * 100;
+    // Clamp to image bounds
+    const clampedX = Math.max(rect.left, Math.min(rect.right, clientX));
+    const clampedY = Math.max(rect.top, Math.min(rect.bottom, clientY));
     
-    // Update current highlight preview
+    const x = ((clampedX - rect.left) / rect.width) * 100;
+    const y = ((clampedY - rect.top) / rect.height) * 100;
+    
+    // Update preview highlight
     const newHighlight = {
       id: 'preview',
       x: Math.min(highlightStart.x, x),
@@ -745,7 +841,7 @@ const Scanner = () => {
     if (isDrawingHighlight) {
       window.addEventListener('mousemove', handleHighlightDraw);
       window.addEventListener('mouseup', handleHighlightEnd);
-      window.addEventListener('touchmove', handleHighlightDraw);
+      window.addEventListener('touchmove', handleHighlightDraw, { passive: false });
       window.addEventListener('touchend', handleHighlightEnd);
     }
     
@@ -1768,9 +1864,21 @@ ${translatedText}
       <div 
         ref={editorContainerRef}
         className="flex-1 relative overflow-hidden flex items-center justify-center bg-gray-800 p-4"
-        onClick={editorTool === 'text' ? handleImageTapForText : undefined}
-        onMouseDown={editorTool === 'highlight' ? handleHighlightStart : undefined}
-        onTouchStart={editorTool === 'highlight' ? handleHighlightStart : undefined}
+        onClick={(e) => {
+          if (editorTool === 'text' && !draggingTextId) {
+            handleImageTapForText(e);
+          }
+        }}
+        onMouseDown={(e) => {
+          if (editorTool === 'highlight') {
+            handleHighlightStart(e);
+          }
+        }}
+        onTouchStart={(e) => {
+          if (editorTool === 'highlight') {
+            handleHighlightStart(e);
+          }
+        }}
       >
         {editingImage && (
           <div className="relative max-w-full max-h-full">
@@ -1778,60 +1886,104 @@ ${translatedText}
             <img
               src={editingImage}
               alt="Editing"
-              className="max-w-full max-h-[55vh] object-contain transition-transform duration-200"
+              className={`max-w-full max-h-[55vh] object-contain transition-transform duration-200 ${
+                editorTool === 'text' ? 'cursor-crosshair' : 
+                editorTool === 'highlight' ? 'cursor-crosshair' : ''
+              }`}
               style={{ transform: `rotate(${rotation}deg)` }}
+              draggable={false}
             />
             
             {/* Highlights overlay */}
             {highlights.map((highlight) => (
               <div
                 key={highlight.id}
-                className="absolute pointer-events-none"
+                className={`absolute ${highlight.id !== 'preview' && editorTool === 'highlight' ? 'cursor-pointer' : 'pointer-events-none'}`}
                 style={{
                   left: `${highlight.x}%`,
                   top: `${highlight.y}%`,
                   width: `${highlight.width}%`,
                   height: `${highlight.height}%`,
                   backgroundColor: highlight.color,
-                  transform: `rotate(${rotation}deg)`
+                  border: highlight.id === 'preview' ? '2px dashed white' : 'none'
                 }}
-              />
+                onClick={(e) => {
+                  if (highlight.id !== 'preview' && editorTool === 'highlight') {
+                    e.stopPropagation();
+                    deleteHighlight(highlight.id);
+                  }
+                }}
+              >
+                {/* Delete button for highlights */}
+                {highlight.id !== 'preview' && editorTool === 'highlight' && (
+                  <button 
+                    className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center shadow-lg"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteHighlight(highlight.id);
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             ))}
             
             {/* Text annotations overlay */}
             {textAnnotations.map((text) => (
               <div
                 key={text.id}
-                className="absolute cursor-pointer group"
+                className={`absolute select-none ${
+                  editorTool === 'text' ? 'cursor-move' : 'pointer-events-none'
+                } ${activeTextId === text.id ? 'ring-2 ring-white ring-offset-2 ring-offset-transparent rounded' : ''}`}
                 style={{
                   left: `${text.x}%`,
                   top: `${text.y}%`,
-                  transform: `rotate(${rotation}deg)`
                 }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (editorTool === 'text') {
-                    deleteTextAnnotation(text.id);
-                  }
-                }}
+                onMouseDown={(e) => handleTextDragStart(e, text.id)}
+                onTouchStart={(e) => handleTextDragStart(e, text.id)}
               >
                 <span 
-                  className="font-bold whitespace-nowrap px-1 rounded"
+                  className="font-bold whitespace-nowrap px-2 py-1 rounded"
                   style={{ 
                     color: text.color,
                     fontSize: `${text.fontSize}px`,
-                    textShadow: '1px 1px 2px rgba(255,255,255,0.8)'
+                    textShadow: '1px 1px 2px rgba(255,255,255,0.9), -1px -1px 2px rgba(255,255,255,0.9)',
+                    backgroundColor: 'rgba(255,255,255,0.3)'
                   }}
                 >
                   {text.text}
                 </span>
+                {/* Delete button for text */}
                 {editorTool === 'text' && (
-                  <button className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 flex items-center justify-center">
+                  <button 
+                    className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center shadow-lg"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteTextAnnotation(text.id);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.stopPropagation();
+                      deleteTextAnnotation(text.id);
+                    }}
+                  >
                     ×
                   </button>
                 )}
               </div>
             ))}
+            
+            {/* Text position indicator when adding */}
+            {isAddingText && newTextPosition && (
+              <div
+                className="absolute w-4 h-4 border-2 border-white bg-primary-500 rounded-full animate-pulse"
+                style={{
+                  left: `${newTextPosition.x}%`,
+                  top: `${newTextPosition.y}%`,
+                  transform: 'translate(-50%, -50%)'
+                }}
+              />
+            )}
             
             {/* Crop Overlay */}
             {editorTool === 'crop' && (
@@ -1961,46 +2113,66 @@ ${translatedText}
         
         {/* Text Input Modal */}
         {isAddingText && newTextPosition && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-20">
-            <div className="bg-white rounded-2xl p-4 w-[90%] max-w-sm">
-              <h4 className="font-bold text-lg mb-3">Add Text</h4>
+          <div 
+            className="absolute inset-0 bg-black/50 flex items-center justify-center z-20"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                cancelAddText();
+              }
+            }}
+          >
+            <div className="bg-white rounded-2xl p-5 w-[90%] max-w-sm shadow-2xl">
+              <h4 className="font-bold text-lg mb-3 text-center">Add Text</h4>
               <input
                 type="text"
                 value={newTextValue}
                 onChange={(e) => setNewTextValue(e.target.value)}
-                placeholder="Enter text..."
-                className="w-full p-3 border border-gray-300 rounded-xl mb-3 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newTextValue.trim()) {
+                    addTextAnnotation();
+                  } else if (e.key === 'Escape') {
+                    cancelAddText();
+                  }
+                }}
+                placeholder="Type your text here..."
+                className="w-full p-3 border border-gray-300 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-primary-500 text-lg"
                 autoFocus
               />
               
               {/* Color picker */}
-              <div className="flex items-center gap-2 mb-4">
+              <div className="flex items-center justify-center gap-3 mb-5">
                 <span className="text-sm text-gray-600">Color:</span>
                 <div className="flex gap-2">
-                  {['#FF0000', '#0000FF', '#00AA00', '#FF6600', '#000000'].map((color) => (
+                  {['#FF0000', '#0000FF', '#00AA00', '#FF6600', '#000000', '#FFFFFF'].map((color) => (
                     <button
                       key={color}
                       onClick={() => setTextColor(color)}
-                      className={`w-8 h-8 rounded-full border-2 ${textColor === color ? 'border-gray-800' : 'border-transparent'}`}
+                      className={`w-9 h-9 rounded-full border-2 transition-all ${
+                        textColor === color ? 'border-primary-500 scale-110' : 'border-gray-300'
+                      } ${color === '#FFFFFF' ? 'bg-white' : ''}`}
                       style={{ backgroundColor: color }}
                     />
                   ))}
                 </div>
               </div>
               
-              <div className="flex gap-2">
+              <div className="flex gap-3">
                 <button
                   onClick={cancelAddText}
-                  className="flex-1 py-2 px-4 border border-gray-300 rounded-xl text-gray-600"
+                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl text-gray-600 font-medium"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={addTextAnnotation}
+                  onClick={() => {
+                    if (newTextValue.trim()) {
+                      addTextAnnotation();
+                    }
+                  }}
                   disabled={!newTextValue.trim()}
-                  className="flex-1 py-2 px-4 bg-primary-600 text-white rounded-xl disabled:opacity-50"
+                  className="flex-1 py-3 px-4 bg-primary-600 text-white rounded-xl disabled:opacity-50 font-medium"
                 >
-                  Add
+                  Add Text
                 </button>
               </div>
             </div>
@@ -2070,14 +2242,19 @@ ${translatedText}
           </p>
         )}
         {editorTool === 'text' && (
-          <p className="text-center text-gray-400 text-xs mt-3">
-            Tap on image to add text • Tap text to delete
-          </p>
+          <div className="mt-3 text-center">
+            <p className="text-gray-400 text-xs">
+              👆 Tap on image where you want text
+            </p>
+            <p className="text-gray-500 text-[10px] mt-1">
+              Drag text to move • Tap ✕ to delete
+            </p>
+          </div>
         )}
         {editorTool === 'highlight' && (
           <div className="mt-3">
             <p className="text-center text-gray-400 text-xs mb-2">
-              Drag on image to highlight area
+              👆 Press & drag on image to highlight • Tap ✕ to delete
             </p>
             <div className="flex items-center justify-center gap-2">
               <span className="text-xs text-gray-400">Color:</span>
@@ -2085,17 +2262,25 @@ ${translatedText}
                 'rgba(255, 255, 0, 0.4)',
                 'rgba(0, 255, 0, 0.4)',
                 'rgba(255, 0, 255, 0.4)',
-                'rgba(0, 255, 255, 0.4)'
+                'rgba(0, 255, 255, 0.4)',
+                'rgba(255, 165, 0, 0.4)'
               ].map((color) => (
                 <button
                   key={color}
                   onClick={() => setHighlightColor(color)}
-                  className={`w-6 h-6 rounded border-2 ${highlightColor === color ? 'border-white' : 'border-transparent'}`}
+                  className={`w-7 h-7 rounded border-2 transition-all ${
+                    highlightColor === color ? 'border-white scale-110' : 'border-gray-600'
+                  }`}
                   style={{ backgroundColor: color }}
                 />
               ))}
             </div>
           </div>
+        )}
+        {!editorTool && (
+          <p className="text-center text-gray-500 text-xs mt-3">
+            Select a tool above to start editing
+          </p>
         )}
         
         {/* Stats */}
