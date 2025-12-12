@@ -123,6 +123,40 @@ export const ocrAPI = {
     return response.data;
   },
 
+  // Create PDF from multiple images with enhancement
+  createPDF: async (images, progressCallback) => {
+    const formData = new FormData();
+    images.forEach((image, index) => {
+      formData.append('images', image, `page_${index + 1}.jpg`);
+    });
+
+    const response = await api.post('/api/ocr/create-pdf', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (progressCallback) progressCallback(percentCompleted);
+      },
+    });
+    return response.data;
+  },
+
+  // Extract text from multiple images
+  extractMultiple: async (images, progressCallback) => {
+    const formData = new FormData();
+    images.forEach((image, index) => {
+      formData.append('images', image, `page_${index + 1}.jpg`);
+    });
+
+    const response = await api.post('/api/ocr/extract-multiple', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (progressCallback) progressCallback(percentCompleted);
+      },
+    });
+    return response.data;
+  },
+
   getScanHistory: async (page = 1, limit = 10) => {
     const response = await api.get(`/api/ocr/history?page=${page}&limit=${limit}`);
     return response.data;
