@@ -580,59 +580,93 @@ const Scanner = () => {
     
     setIsDraggingCrop(true);
     setDragHandle(handle);
-    setDragStart({ x: clientX, y: clientY, ...cropArea });
+    // Store both mouse position AND current crop area
+    setDragStart({ 
+      x: clientX, 
+      y: clientY,
+      cropX: cropArea.x,
+      cropY: cropArea.y,
+      cropW: cropArea.width,
+      cropH: cropArea.height
+    });
   };
 
   // Handle crop area drag
   const handleCropDrag = useCallback((e) => {
     if (!isDraggingCrop || !editorContainerRef.current) return;
     
+    e.preventDefault();
+    
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     
+    // Get the image element dimensions (not container)
     const container = editorContainerRef.current;
-    const rect = container.getBoundingClientRect();
+    const img = container.querySelector('img');
+    if (!img) return;
     
+    const rect = img.getBoundingClientRect();
+    
+    // Calculate delta as percentage of image size
     const deltaX = ((clientX - dragStart.x) / rect.width) * 100;
     const deltaY = ((clientY - dragStart.y) / rect.height) * 100;
     
-    setCropArea((prev) => {
-      let newArea = { ...prev };
+    setCropArea(() => {
+      const startX = dragStart.cropX;
+      const startY = dragStart.cropY;
+      const startW = dragStart.cropW;
+      const startH = dragStart.cropH;
+      
+      let newArea = { x: startX, y: startY, width: startW, height: startH };
       
       switch (dragHandle) {
         case 'move':
-          newArea.x = Math.max(0, Math.min(100 - prev.width, dragStart.x + deltaX));
-          newArea.y = Math.max(0, Math.min(100 - prev.height, dragStart.y + deltaY));
+          newArea.x = Math.max(0, Math.min(100 - startW, startX + deltaX));
+          newArea.y = Math.max(0, Math.min(100 - startH, startY + deltaY));
           break;
         case 'nw':
-          newArea.x = Math.max(0, Math.min(dragStart.x + dragStart.width - 20, dragStart.x + deltaX));
-          newArea.y = Math.max(0, Math.min(dragStart.y + dragStart.height - 20, dragStart.y + deltaY));
-          newArea.width = dragStart.width - (newArea.x - dragStart.x);
-          newArea.height = dragStart.height - (newArea.y - dragStart.y);
+          const nwNewX = Math.max(0, Math.min(startX + startW - 15, startX + deltaX));
+          const nwNewY = Math.max(0, Math.min(startY + startH - 15, startY + deltaY));
+          newArea.x = nwNewX;
+          newArea.y = nwNewY;
+          newArea.width = startW - (nwNewX - startX);
+          newArea.height = startH - (nwNewY - startY);
           break;
         case 'ne':
-          newArea.y = Math.max(0, Math.min(dragStart.y + dragStart.height - 20, dragStart.y + deltaY));
-          newArea.width = Math.max(20, Math.min(100 - dragStart.x, dragStart.width + deltaX));
-          newArea.height = dragStart.height - (newArea.y - dragStart.y);
+          const neNewY = Math.max(0, Math.min(startY + startH - 15, startY + deltaY));
+          newArea.y = neNewY;
+          newArea.width = Math.max(15, Math.min(100 - startX, startW + deltaX));
+          newArea.height = startH - (neNewY - startY);
           break;
         case 'sw':
-          newArea.x = Math.max(0, Math.min(dragStart.x + dragStart.width - 20, dragStart.x + deltaX));
-          newArea.width = dragStart.width - (newArea.x - dragStart.x);
-          newArea.height = Math.max(20, Math.min(100 - dragStart.y, dragStart.height + deltaY));
+          const swNewX = Math.max(0, Math.min(startX + startW - 15, startX + deltaX));
+          newArea.x = swNewX;
+          newArea.width = startW - (swNewX - startX);
+          newArea.height = Math.max(15, Math.min(100 - startY, startH + deltaY));
           break;
         case 'se':
-          newArea.width = Math.max(20, Math.min(100 - dragStart.x, dragStart.width + deltaX));
-          newArea.height = Math.max(20, Math.min(100 - dragStart.y, dragStart.height + deltaY));
+          newArea.width = Math.max(15, Math.min(100 - startX, startW + deltaX));
+          newArea.height = Math.max(15, Math.min(100 - startY, startH + deltaY));
+          break;
+        case 'n':
+          const nNewY = Math.max(0, Math.min(startY + startH - 15, startY + deltaY));
+          newArea.y = nNewY;
+          newArea.height = startH - (nNewY - startY);
+          break;
+        case 's':
+          newArea.height = Math.max(15, Math.min(100 - startY, startH + deltaY));
+          break;
+        case 'w':
+          const wNewX = Math.max(0, Math.min(startX + startW - 15, startX + deltaX));
+          newArea.x = wNewX;
+          newArea.width = startW - (wNewX - startX);
+          break;
+        case 'e':
+          newArea.width = Math.max(15, Math.min(100 - startX, startW + deltaX));
           break;
         default:
           break;
       }
-      
-      // Ensure values are within bounds
-      newArea.x = Math.max(0, Math.min(100, newArea.x));
-      newArea.y = Math.max(0, Math.min(100, newArea.y));
-      newArea.width = Math.max(20, Math.min(100 - newArea.x, newArea.width));
-      newArea.height = Math.max(20, Math.min(100 - newArea.y, newArea.height));
       
       return newArea;
     });
@@ -1524,25 +1558,46 @@ ${translatedText}
             
             {/* Crop Overlay */}
             {cropMode && (
-              <div className="absolute inset-0" style={{ transform: `rotate(${rotation}deg)` }}>
+              <div 
+                className="absolute inset-0"
+                style={{ transform: `rotate(${rotation}deg)` }}
+              >
                 {/* Dark overlay outside crop area */}
                 <div 
-                  className="absolute inset-0 bg-black/60"
+                  className="absolute inset-0 pointer-events-none"
                   style={{
-                    clipPath: `polygon(
-                      0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%,
-                      ${cropArea.x}% ${cropArea.y}%,
-                      ${cropArea.x}% ${cropArea.y + cropArea.height}%,
-                      ${cropArea.x + cropArea.width}% ${cropArea.y + cropArea.height}%,
-                      ${cropArea.x + cropArea.width}% ${cropArea.y}%,
-                      ${cropArea.x}% ${cropArea.y}%
+                    background: `linear-gradient(to right, 
+                      rgba(0,0,0,0.7) ${cropArea.x}%, 
+                      transparent ${cropArea.x}%, 
+                      transparent ${cropArea.x + cropArea.width}%, 
+                      rgba(0,0,0,0.7) ${cropArea.x + cropArea.width}%
                     )`
                   }}
                 />
-                
-                {/* Crop area border */}
                 <div 
-                  className="absolute border-2 border-white"
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${cropArea.x}%`,
+                    top: 0,
+                    width: `${cropArea.width}%`,
+                    height: `${cropArea.y}%`,
+                    background: 'rgba(0,0,0,0.7)'
+                  }}
+                />
+                <div 
+                  className="absolute pointer-events-none"
+                  style={{
+                    left: `${cropArea.x}%`,
+                    top: `${cropArea.y + cropArea.height}%`,
+                    width: `${cropArea.width}%`,
+                    bottom: 0,
+                    background: 'rgba(0,0,0,0.7)'
+                  }}
+                />
+                
+                {/* Crop area - moveable */}
+                <div 
+                  className="absolute border-2 border-white cursor-move"
                   style={{
                     left: `${cropArea.x}%`,
                     top: `${cropArea.y}%`,
@@ -1554,58 +1609,120 @@ ${translatedText}
                 >
                   {/* Grid lines */}
                   <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/40" />
-                    <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/40" />
-                    <div className="absolute top-1/3 left-0 right-0 h-px bg-white/40" />
-                    <div className="absolute top-2/3 left-0 right-0 h-px bg-white/40" />
-                  </div>
-                  
-                  {/* Corner handles */}
-                  {/* Top-left */}
-                  <div 
-                    className="absolute -top-2 -left-2 w-6 h-6 cursor-nw-resize"
-                    onMouseDown={(e) => handleCropDragStart(e, 'nw')}
-                    onTouchStart={(e) => handleCropDragStart(e, 'nw')}
-                  >
-                    <div className="absolute top-2 left-2 w-4 h-1 bg-white" />
-                    <div className="absolute top-2 left-2 w-1 h-4 bg-white" />
-                  </div>
-                  
-                  {/* Top-right */}
-                  <div 
-                    className="absolute -top-2 -right-2 w-6 h-6 cursor-ne-resize"
-                    onMouseDown={(e) => handleCropDragStart(e, 'ne')}
-                    onTouchStart={(e) => handleCropDragStart(e, 'ne')}
-                  >
-                    <div className="absolute top-2 right-2 w-4 h-1 bg-white" />
-                    <div className="absolute top-2 right-2 w-1 h-4 bg-white" />
-                  </div>
-                  
-                  {/* Bottom-left */}
-                  <div 
-                    className="absolute -bottom-2 -left-2 w-6 h-6 cursor-sw-resize"
-                    onMouseDown={(e) => handleCropDragStart(e, 'sw')}
-                    onTouchStart={(e) => handleCropDragStart(e, 'sw')}
-                  >
-                    <div className="absolute bottom-2 left-2 w-4 h-1 bg-white" />
-                    <div className="absolute bottom-2 left-2 w-1 h-4 bg-white" />
-                  </div>
-                  
-                  {/* Bottom-right */}
-                  <div 
-                    className="absolute -bottom-2 -right-2 w-6 h-6 cursor-se-resize"
-                    onMouseDown={(e) => handleCropDragStart(e, 'se')}
-                    onTouchStart={(e) => handleCropDragStart(e, 'se')}
-                  >
-                    <div className="absolute bottom-2 right-2 w-4 h-1 bg-white" />
-                    <div className="absolute bottom-2 right-2 w-1 h-4 bg-white" />
+                    <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/50" />
+                    <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/50" />
+                    <div className="absolute top-1/3 left-0 right-0 h-px bg-white/50" />
+                    <div className="absolute top-2/3 left-0 right-0 h-px bg-white/50" />
                   </div>
                   
                   {/* Move icon in center */}
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                    <Move className="w-8 h-8 text-white/70" />
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/50 rounded-full p-2 pointer-events-none">
+                    <Move className="w-6 h-6 text-white" />
                   </div>
                 </div>
+                
+                {/* Corner handles - BIGGER for mobile */}
+                {/* Top-left */}
+                <div 
+                  className="absolute w-10 h-10 cursor-nw-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x}% - 20px)`,
+                    top: `calc(${cropArea.y}% - 20px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'nw')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'nw')}
+                >
+                  <div className="absolute bottom-1 right-1 w-5 h-1.5 bg-white rounded" />
+                  <div className="absolute bottom-1 right-1 w-1.5 h-5 bg-white rounded" />
+                </div>
+                
+                {/* Top-right */}
+                <div 
+                  className="absolute w-10 h-10 cursor-ne-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x + cropArea.width}% - 20px)`,
+                    top: `calc(${cropArea.y}% - 20px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'ne')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'ne')}
+                >
+                  <div className="absolute bottom-1 left-1 w-5 h-1.5 bg-white rounded" />
+                  <div className="absolute bottom-1 left-1 w-1.5 h-5 bg-white rounded" />
+                </div>
+                
+                {/* Bottom-left */}
+                <div 
+                  className="absolute w-10 h-10 cursor-sw-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x}% - 20px)`,
+                    top: `calc(${cropArea.y + cropArea.height}% - 20px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'sw')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'sw')}
+                >
+                  <div className="absolute top-1 right-1 w-5 h-1.5 bg-white rounded" />
+                  <div className="absolute top-1 right-1 w-1.5 h-5 bg-white rounded" />
+                </div>
+                
+                {/* Bottom-right */}
+                <div 
+                  className="absolute w-10 h-10 cursor-se-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x + cropArea.width}% - 20px)`,
+                    top: `calc(${cropArea.y + cropArea.height}% - 20px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'se')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'se')}
+                >
+                  <div className="absolute top-1 left-1 w-5 h-1.5 bg-white rounded" />
+                  <div className="absolute top-1 left-1 w-1.5 h-5 bg-white rounded" />
+                </div>
+                
+                {/* Edge handles for easier resizing on mobile */}
+                {/* Top edge */}
+                <div 
+                  className="absolute h-8 cursor-n-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x}% + 20px)`,
+                    top: `calc(${cropArea.y}% - 16px)`,
+                    width: `calc(${cropArea.width}% - 40px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'n')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'n')}
+                />
+                {/* Bottom edge */}
+                <div 
+                  className="absolute h-8 cursor-s-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x}% + 20px)`,
+                    top: `calc(${cropArea.y + cropArea.height}% - 16px)`,
+                    width: `calc(${cropArea.width}% - 40px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 's')}
+                  onTouchStart={(e) => handleCropDragStart(e, 's')}
+                />
+                {/* Left edge */}
+                <div 
+                  className="absolute w-8 cursor-w-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x}% - 16px)`,
+                    top: `calc(${cropArea.y}% + 20px)`,
+                    height: `calc(${cropArea.height}% - 40px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'w')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'w')}
+                />
+                {/* Right edge */}
+                <div 
+                  className="absolute w-8 cursor-e-resize z-10"
+                  style={{
+                    left: `calc(${cropArea.x + cropArea.width}% - 16px)`,
+                    top: `calc(${cropArea.y}% + 20px)`,
+                    height: `calc(${cropArea.height}% - 40px)`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'e')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'e')}
+                />
               </div>
             )}
           </div>
