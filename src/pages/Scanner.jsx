@@ -27,6 +27,9 @@ import {
   Crop,
   Check,
   Move,
+  Type,
+  Highlighter,
+  Palette,
 } from 'lucide-react';
 
 const Scanner = () => {
@@ -59,6 +62,19 @@ const Scanner = () => {
   const [isDraggingCrop, setIsDraggingCrop] = useState(false);
   const [dragHandle, setDragHandle] = useState(null);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  
+  // Text & Highlight State
+  const [editorTool, setEditorTool] = useState(null); // 'crop', 'text', 'highlight'
+  const [textAnnotations, setTextAnnotations] = useState([]); // Array of {id, x, y, text, color, fontSize}
+  const [highlights, setHighlights] = useState([]); // Array of {id, x, y, width, height, color}
+  const [activeTextId, setActiveTextId] = useState(null);
+  const [isAddingText, setIsAddingText] = useState(false);
+  const [newTextPosition, setNewTextPosition] = useState(null);
+  const [newTextValue, setNewTextValue] = useState('');
+  const [textColor, setTextColor] = useState('#FF0000');
+  const [highlightColor, setHighlightColor] = useState('rgba(255, 255, 0, 0.4)');
+  const [isDrawingHighlight, setIsDrawingHighlight] = useState(false);
+  const [highlightStart, setHighlightStart] = useState(null);
   
   // Refs
   const videoRef = useRef(null);
@@ -544,7 +560,14 @@ const Scanner = () => {
     setEditingImage(url);
     setRotation(0);
     setCropMode(false);
+    setEditorTool(null);
     setCropArea({ x: 10, y: 10, width: 80, height: 80 }); // Percentage values
+    setTextAnnotations([]);
+    setHighlights([]);
+    setActiveTextId(null);
+    setIsAddingText(false);
+    setNewTextPosition(null);
+    setNewTextValue('');
     setMode('editor');
   };
 
@@ -557,6 +580,11 @@ const Scanner = () => {
     setEditingIndex(null);
     setRotation(0);
     setCropMode(false);
+    setEditorTool(null);
+    setTextAnnotations([]);
+    setHighlights([]);
+    setActiveTextId(null);
+    setIsAddingText(false);
     setMode('multipreview');
   };
 
@@ -567,8 +595,167 @@ const Scanner = () => {
 
   // Toggle crop mode
   const toggleCropMode = () => {
-    setCropMode(!cropMode);
+    setEditorTool(editorTool === 'crop' ? null : 'crop');
+    setCropMode(editorTool !== 'crop');
+    setIsAddingText(false);
+    setIsDrawingHighlight(false);
   };
+
+  // Toggle text mode
+  const toggleTextMode = () => {
+    setEditorTool(editorTool === 'text' ? null : 'text');
+    setCropMode(false);
+    setIsAddingText(false);
+    setIsDrawingHighlight(false);
+  };
+
+  // Toggle highlight mode
+  const toggleHighlightMode = () => {
+    setEditorTool(editorTool === 'highlight' ? null : 'highlight');
+    setCropMode(false);
+    setIsAddingText(false);
+    setIsDrawingHighlight(false);
+  };
+
+  // Handle tap on image to add text
+  const handleImageTapForText = (e) => {
+    if (editorTool !== 'text') return;
+    
+    const container = editorContainerRef.current;
+    const img = container?.querySelector('img');
+    if (!img) return;
+    
+    const rect = img.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const x = ((clientX - rect.left) / rect.width) * 100;
+    const y = ((clientY - rect.top) / rect.height) * 100;
+    
+    setNewTextPosition({ x, y });
+    setIsAddingText(true);
+    setNewTextValue('');
+  };
+
+  // Add text annotation
+  const addTextAnnotation = () => {
+    if (!newTextValue.trim() || !newTextPosition) return;
+    
+    const newText = {
+      id: Date.now(),
+      x: newTextPosition.x,
+      y: newTextPosition.y,
+      text: newTextValue,
+      color: textColor,
+      fontSize: 16
+    };
+    
+    setTextAnnotations(prev => [...prev, newText]);
+    setIsAddingText(false);
+    setNewTextPosition(null);
+    setNewTextValue('');
+  };
+
+  // Cancel adding text
+  const cancelAddText = () => {
+    setIsAddingText(false);
+    setNewTextPosition(null);
+    setNewTextValue('');
+  };
+
+  // Delete text annotation
+  const deleteTextAnnotation = (id) => {
+    setTextAnnotations(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Handle highlight drawing start
+  const handleHighlightStart = (e) => {
+    if (editorTool !== 'highlight') return;
+    
+    const container = editorContainerRef.current;
+    const img = container?.querySelector('img');
+    if (!img) return;
+    
+    const rect = img.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const x = ((clientX - rect.left) / rect.width) * 100;
+    const y = ((clientY - rect.top) / rect.height) * 100;
+    
+    setHighlightStart({ x, y });
+    setIsDrawingHighlight(true);
+  };
+
+  // Handle highlight drawing
+  const handleHighlightDraw = useCallback((e) => {
+    if (!isDrawingHighlight || !highlightStart || !editorContainerRef.current) return;
+    
+    const container = editorContainerRef.current;
+    const img = container?.querySelector('img');
+    if (!img) return;
+    
+    const rect = img.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const x = ((clientX - rect.left) / rect.width) * 100;
+    const y = ((clientY - rect.top) / rect.height) * 100;
+    
+    // Update current highlight preview
+    const newHighlight = {
+      id: 'preview',
+      x: Math.min(highlightStart.x, x),
+      y: Math.min(highlightStart.y, y),
+      width: Math.abs(x - highlightStart.x),
+      height: Math.abs(y - highlightStart.y),
+      color: highlightColor
+    };
+    
+    setHighlights(prev => {
+      const filtered = prev.filter(h => h.id !== 'preview');
+      return [...filtered, newHighlight];
+    });
+  }, [isDrawingHighlight, highlightStart, highlightColor]);
+
+  // Handle highlight drawing end
+  const handleHighlightEnd = useCallback(() => {
+    if (!isDrawingHighlight) return;
+    
+    setHighlights(prev => {
+      return prev.map(h => {
+        if (h.id === 'preview' && h.width > 2 && h.height > 2) {
+          return { ...h, id: Date.now() };
+        }
+        return h;
+      }).filter(h => h.id !== 'preview' || (h.width > 2 && h.height > 2));
+    });
+    
+    setIsDrawingHighlight(false);
+    setHighlightStart(null);
+  }, [isDrawingHighlight]);
+
+  // Delete highlight
+  const deleteHighlight = (id) => {
+    setHighlights(prev => prev.filter(h => h.id !== id));
+  };
+
+  // Add event listeners for highlight drawing
+  useEffect(() => {
+    if (isDrawingHighlight) {
+      window.addEventListener('mousemove', handleHighlightDraw);
+      window.addEventListener('mouseup', handleHighlightEnd);
+      window.addEventListener('touchmove', handleHighlightDraw);
+      window.addEventListener('touchend', handleHighlightEnd);
+    }
+    
+    return () => {
+      window.removeEventListener('mousemove', handleHighlightDraw);
+      window.removeEventListener('mouseup', handleHighlightEnd);
+      window.removeEventListener('touchmove', handleHighlightDraw);
+      window.removeEventListener('touchend', handleHighlightEnd);
+    };
+  }, [isDrawingHighlight, handleHighlightDraw, handleHighlightEnd]);
 
   // Handle crop area drag start
   const handleCropDragStart = (e, handle = 'move') => {
@@ -740,9 +927,45 @@ const Scanner = () => {
       }
       ctx.restore();
       
+      // Draw highlights (before text so text appears on top)
+      highlights.forEach(highlight => {
+        if (highlight.id === 'preview') return; // Skip preview
+        ctx.fillStyle = highlight.color;
+        ctx.fillRect(
+          (highlight.x / 100) * canvas.width,
+          (highlight.y / 100) * canvas.height,
+          (highlight.width / 100) * canvas.width,
+          (highlight.height / 100) * canvas.height
+        );
+      });
+      
+      // Draw text annotations
+      textAnnotations.forEach(text => {
+        const fontSize = Math.round((text.fontSize / 100) * canvas.width * 0.05);
+        ctx.font = `bold ${Math.max(fontSize, 14)}px Arial`;
+        ctx.fillStyle = text.color;
+        ctx.textBaseline = 'top';
+        
+        // Add shadow for better visibility
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+        ctx.shadowBlur = 3;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+        
+        ctx.fillText(
+          text.text,
+          (text.x / 100) * canvas.width,
+          (text.y / 100) * canvas.height
+        );
+        
+        // Reset shadow
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+      });
+      
       // If crop mode is active, apply crop
       let finalCanvas = canvas;
-      if (cropMode) {
+      if (editorTool === 'crop') {
         const cropX = (cropArea.x / 100) * canvas.width;
         const cropY = (cropArea.y / 100) * canvas.height;
         const cropW = (cropArea.width / 100) * canvas.width;
@@ -1545,6 +1768,9 @@ ${translatedText}
       <div 
         ref={editorContainerRef}
         className="flex-1 relative overflow-hidden flex items-center justify-center bg-gray-800 p-4"
+        onClick={editorTool === 'text' ? handleImageTapForText : undefined}
+        onMouseDown={editorTool === 'highlight' ? handleHighlightStart : undefined}
+        onTouchStart={editorTool === 'highlight' ? handleHighlightStart : undefined}
       >
         {editingImage && (
           <div className="relative max-w-full max-h-full">
@@ -1552,12 +1778,63 @@ ${translatedText}
             <img
               src={editingImage}
               alt="Editing"
-              className="max-w-full max-h-[60vh] object-contain transition-transform duration-200"
+              className="max-w-full max-h-[55vh] object-contain transition-transform duration-200"
               style={{ transform: `rotate(${rotation}deg)` }}
             />
             
+            {/* Highlights overlay */}
+            {highlights.map((highlight) => (
+              <div
+                key={highlight.id}
+                className="absolute pointer-events-none"
+                style={{
+                  left: `${highlight.x}%`,
+                  top: `${highlight.y}%`,
+                  width: `${highlight.width}%`,
+                  height: `${highlight.height}%`,
+                  backgroundColor: highlight.color,
+                  transform: `rotate(${rotation}deg)`
+                }}
+              />
+            ))}
+            
+            {/* Text annotations overlay */}
+            {textAnnotations.map((text) => (
+              <div
+                key={text.id}
+                className="absolute cursor-pointer group"
+                style={{
+                  left: `${text.x}%`,
+                  top: `${text.y}%`,
+                  transform: `rotate(${rotation}deg)`
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (editorTool === 'text') {
+                    deleteTextAnnotation(text.id);
+                  }
+                }}
+              >
+                <span 
+                  className="font-bold whitespace-nowrap px-1 rounded"
+                  style={{ 
+                    color: text.color,
+                    fontSize: `${text.fontSize}px`,
+                    textShadow: '1px 1px 2px rgba(255,255,255,0.8)'
+                  }}
+                >
+                  {text.text}
+                </span>
+                {editorTool === 'text' && (
+                  <button className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 flex items-center justify-center">
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+            
             {/* Crop Overlay */}
-            {cropMode && (
+            {editorTool === 'crop' && (
               <div 
                 className="absolute inset-0"
                 style={{ transform: `rotate(${rotation}deg)` }}
@@ -1677,104 +1954,156 @@ ${translatedText}
                   <div className="absolute top-1 left-1 w-5 h-1.5 bg-white rounded" />
                   <div className="absolute top-1 left-1 w-1.5 h-5 bg-white rounded" />
                 </div>
-                
-                {/* Edge handles for easier resizing on mobile */}
-                {/* Top edge */}
-                <div 
-                  className="absolute h-8 cursor-n-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x}% + 20px)`,
-                    top: `calc(${cropArea.y}% - 16px)`,
-                    width: `calc(${cropArea.width}% - 40px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'n')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'n')}
-                />
-                {/* Bottom edge */}
-                <div 
-                  className="absolute h-8 cursor-s-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x}% + 20px)`,
-                    top: `calc(${cropArea.y + cropArea.height}% - 16px)`,
-                    width: `calc(${cropArea.width}% - 40px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 's')}
-                  onTouchStart={(e) => handleCropDragStart(e, 's')}
-                />
-                {/* Left edge */}
-                <div 
-                  className="absolute w-8 cursor-w-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x}% - 16px)`,
-                    top: `calc(${cropArea.y}% + 20px)`,
-                    height: `calc(${cropArea.height}% - 40px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'w')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'w')}
-                />
-                {/* Right edge */}
-                <div 
-                  className="absolute w-8 cursor-e-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x + cropArea.width}% - 16px)`,
-                    top: `calc(${cropArea.y}% + 20px)`,
-                    height: `calc(${cropArea.height}% - 40px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'e')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'e')}
-                />
               </div>
             )}
+          </div>
+        )}
+        
+        {/* Text Input Modal */}
+        {isAddingText && newTextPosition && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-20">
+            <div className="bg-white rounded-2xl p-4 w-[90%] max-w-sm">
+              <h4 className="font-bold text-lg mb-3">Add Text</h4>
+              <input
+                type="text"
+                value={newTextValue}
+                onChange={(e) => setNewTextValue(e.target.value)}
+                placeholder="Enter text..."
+                className="w-full p-3 border border-gray-300 rounded-xl mb-3 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                autoFocus
+              />
+              
+              {/* Color picker */}
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-sm text-gray-600">Color:</span>
+                <div className="flex gap-2">
+                  {['#FF0000', '#0000FF', '#00AA00', '#FF6600', '#000000'].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setTextColor(color)}
+                      className={`w-8 h-8 rounded-full border-2 ${textColor === color ? 'border-gray-800' : 'border-transparent'}`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={cancelAddText}
+                  className="flex-1 py-2 px-4 border border-gray-300 rounded-xl text-gray-600"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={addTextAnnotation}
+                  disabled={!newTextValue.trim()}
+                  className="flex-1 py-2 px-4 bg-primary-600 text-white rounded-xl disabled:opacity-50"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
       
       {/* Tool Bar */}
       <div className="bg-gray-900 px-4 py-4 safe-bottom">
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex items-center justify-center gap-2 flex-wrap">
           {/* Rotate Left */}
           <button
             onClick={() => rotateImage(-90)}
-            className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl hover:bg-gray-800 transition-colors"
+            className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors"
           >
-            <RotateCcw className="w-6 h-6 text-white" />
-            <span className="text-xs text-gray-400">Rotate Left</span>
+            <RotateCcw className="w-5 h-5 text-white" />
+            <span className="text-[10px] text-gray-400">Left</span>
           </button>
           
           {/* Rotate Right */}
           <button
             onClick={() => rotateImage(90)}
-            className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl hover:bg-gray-800 transition-colors"
+            className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors"
           >
-            <RotateCw className="w-6 h-6 text-white" />
-            <span className="text-xs text-gray-400">Rotate Right</span>
+            <RotateCw className="w-5 h-5 text-white" />
+            <span className="text-[10px] text-gray-400">Right</span>
           </button>
           
           {/* Crop Toggle */}
           <button
             onClick={toggleCropMode}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-colors ${
-              cropMode ? 'bg-primary-600' : 'hover:bg-gray-800'
+            className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-colors ${
+              editorTool === 'crop' ? 'bg-primary-600' : 'hover:bg-gray-800'
             }`}
           >
-            <Crop className="w-6 h-6 text-white" />
-            <span className="text-xs text-gray-400">{cropMode ? 'Cropping' : 'Crop'}</span>
+            <Crop className="w-5 h-5 text-white" />
+            <span className="text-[10px] text-gray-400">Crop</span>
+          </button>
+          
+          {/* Text Toggle */}
+          <button
+            onClick={toggleTextMode}
+            className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-colors ${
+              editorTool === 'text' ? 'bg-blue-600' : 'hover:bg-gray-800'
+            }`}
+          >
+            <Type className="w-5 h-5 text-white" />
+            <span className="text-[10px] text-gray-400">Text</span>
+          </button>
+          
+          {/* Highlight Toggle */}
+          <button
+            onClick={toggleHighlightMode}
+            className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-colors ${
+              editorTool === 'highlight' ? 'bg-yellow-600' : 'hover:bg-gray-800'
+            }`}
+          >
+            <Highlighter className="w-5 h-5 text-white" />
+            <span className="text-[10px] text-gray-400">Highlight</span>
           </button>
         </div>
         
-        {/* Crop instructions */}
-        {cropMode && (
-          <p className="text-center text-gray-400 text-sm mt-3">
-            Drag corners to adjust crop area • Drag center to move
+        {/* Tool instructions */}
+        {editorTool === 'crop' && (
+          <p className="text-center text-gray-400 text-xs mt-3">
+            Drag corners to adjust • Drag center to move
           </p>
+        )}
+        {editorTool === 'text' && (
+          <p className="text-center text-gray-400 text-xs mt-3">
+            Tap on image to add text • Tap text to delete
+          </p>
+        )}
+        {editorTool === 'highlight' && (
+          <div className="mt-3">
+            <p className="text-center text-gray-400 text-xs mb-2">
+              Drag on image to highlight area
+            </p>
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-xs text-gray-400">Color:</span>
+              {[
+                'rgba(255, 255, 0, 0.4)',
+                'rgba(0, 255, 0, 0.4)',
+                'rgba(255, 0, 255, 0.4)',
+                'rgba(0, 255, 255, 0.4)'
+              ].map((color) => (
+                <button
+                  key={color}
+                  onClick={() => setHighlightColor(color)}
+                  className={`w-6 h-6 rounded border-2 ${highlightColor === color ? 'border-white' : 'border-transparent'}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+          </div>
         )}
         
-        {/* Rotation indicator */}
-        {rotation !== 0 && (
-          <p className="text-center text-gray-400 text-sm mt-2">
-            Rotated {rotation}°
-          </p>
-        )}
+        {/* Stats */}
+        <div className="flex justify-center gap-4 mt-2 text-xs text-gray-500">
+          {rotation !== 0 && <span>Rotated {rotation}°</span>}
+          {textAnnotations.length > 0 && <span>{textAnnotations.length} text(s)</span>}
+          {highlights.filter(h => h.id !== 'preview').length > 0 && <span>{highlights.filter(h => h.id !== 'preview').length} highlight(s)</span>}
+        </div>
       </div>
     </div>
   );
