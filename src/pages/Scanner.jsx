@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ocrAPI } from '../services/api';
 import { Capacitor } from '@capacitor/core';
@@ -22,13 +22,18 @@ import {
   FileImage,
   ChevronLeft,
   ChevronRight,
+  RotateCcw,
+  RotateCw,
+  Crop,
+  Check,
+  Move,
 } from 'lucide-react';
 
 const Scanner = () => {
   const { user, isAuthenticated } = useAuth();
   
   // State management
-  const [mode, setMode] = useState('select'); // 'select', 'camera', 'preview', 'multipreview', 'processing', 'result'
+  const [mode, setMode] = useState('select'); // 'select', 'camera', 'preview', 'multipreview', 'editor', 'processing', 'result'
   const [stream, setStream] = useState(null);
   const [capturedImages, setCapturedImages] = useState([]); // Array of captured image blobs
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
@@ -45,11 +50,23 @@ const Scanner = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   
+  // Image Editor State
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingImage, setEditingImage] = useState(null);
+  const [rotation, setRotation] = useState(0);
+  const [cropMode, setCropMode] = useState(false);
+  const [cropArea, setCropArea] = useState({ x: 0, y: 0, width: 100, height: 100 });
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [dragHandle, setDragHandle] = useState(null);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  
   // Refs
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const dropZoneRef = useRef(null);
+  const editorCanvasRef = useRef(null);
+  const editorContainerRef = useRef(null);
   
   const isNative = Capacitor.isNativePlatform();
   const canScan = isAuthenticated ? (user?.canScan?.() ?? true) : true;
@@ -516,6 +533,220 @@ const Scanner = () => {
       img.src = URL.createObjectURL(blob);
     });
   };
+
+  // ==================== IMAGE EDITOR FUNCTIONS ====================
+  
+  // Open image editor for a specific image
+  const openEditor = (index) => {
+    const blob = capturedImages[index];
+    const url = URL.createObjectURL(blob);
+    setEditingIndex(index);
+    setEditingImage(url);
+    setRotation(0);
+    setCropMode(false);
+    setCropArea({ x: 10, y: 10, width: 80, height: 80 }); // Percentage values
+    setMode('editor');
+  };
+
+  // Close editor without saving
+  const closeEditor = () => {
+    if (editingImage) {
+      URL.revokeObjectURL(editingImage);
+    }
+    setEditingImage(null);
+    setEditingIndex(null);
+    setRotation(0);
+    setCropMode(false);
+    setMode('multipreview');
+  };
+
+  // Rotate image
+  const rotateImage = (degrees) => {
+    setRotation((prev) => (prev + degrees + 360) % 360);
+  };
+
+  // Toggle crop mode
+  const toggleCropMode = () => {
+    setCropMode(!cropMode);
+  };
+
+  // Handle crop area drag start
+  const handleCropDragStart = (e, handle = 'move') => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    setIsDraggingCrop(true);
+    setDragHandle(handle);
+    setDragStart({ x: clientX, y: clientY, ...cropArea });
+  };
+
+  // Handle crop area drag
+  const handleCropDrag = useCallback((e) => {
+    if (!isDraggingCrop || !editorContainerRef.current) return;
+    
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    
+    const container = editorContainerRef.current;
+    const rect = container.getBoundingClientRect();
+    
+    const deltaX = ((clientX - dragStart.x) / rect.width) * 100;
+    const deltaY = ((clientY - dragStart.y) / rect.height) * 100;
+    
+    setCropArea((prev) => {
+      let newArea = { ...prev };
+      
+      switch (dragHandle) {
+        case 'move':
+          newArea.x = Math.max(0, Math.min(100 - prev.width, dragStart.x + deltaX));
+          newArea.y = Math.max(0, Math.min(100 - prev.height, dragStart.y + deltaY));
+          break;
+        case 'nw':
+          newArea.x = Math.max(0, Math.min(dragStart.x + dragStart.width - 20, dragStart.x + deltaX));
+          newArea.y = Math.max(0, Math.min(dragStart.y + dragStart.height - 20, dragStart.y + deltaY));
+          newArea.width = dragStart.width - (newArea.x - dragStart.x);
+          newArea.height = dragStart.height - (newArea.y - dragStart.y);
+          break;
+        case 'ne':
+          newArea.y = Math.max(0, Math.min(dragStart.y + dragStart.height - 20, dragStart.y + deltaY));
+          newArea.width = Math.max(20, Math.min(100 - dragStart.x, dragStart.width + deltaX));
+          newArea.height = dragStart.height - (newArea.y - dragStart.y);
+          break;
+        case 'sw':
+          newArea.x = Math.max(0, Math.min(dragStart.x + dragStart.width - 20, dragStart.x + deltaX));
+          newArea.width = dragStart.width - (newArea.x - dragStart.x);
+          newArea.height = Math.max(20, Math.min(100 - dragStart.y, dragStart.height + deltaY));
+          break;
+        case 'se':
+          newArea.width = Math.max(20, Math.min(100 - dragStart.x, dragStart.width + deltaX));
+          newArea.height = Math.max(20, Math.min(100 - dragStart.y, dragStart.height + deltaY));
+          break;
+        default:
+          break;
+      }
+      
+      // Ensure values are within bounds
+      newArea.x = Math.max(0, Math.min(100, newArea.x));
+      newArea.y = Math.max(0, Math.min(100, newArea.y));
+      newArea.width = Math.max(20, Math.min(100 - newArea.x, newArea.width));
+      newArea.height = Math.max(20, Math.min(100 - newArea.y, newArea.height));
+      
+      return newArea;
+    });
+  }, [isDraggingCrop, dragHandle, dragStart]);
+
+  // Handle crop area drag end
+  const handleCropDragEnd = useCallback(() => {
+    setIsDraggingCrop(false);
+    setDragHandle(null);
+  }, []);
+
+  // Add event listeners for drag
+  useEffect(() => {
+    if (isDraggingCrop) {
+      window.addEventListener('mousemove', handleCropDrag);
+      window.addEventListener('mouseup', handleCropDragEnd);
+      window.addEventListener('touchmove', handleCropDrag);
+      window.addEventListener('touchend', handleCropDragEnd);
+    }
+    
+    return () => {
+      window.removeEventListener('mousemove', handleCropDrag);
+      window.removeEventListener('mouseup', handleCropDragEnd);
+      window.removeEventListener('touchmove', handleCropDrag);
+      window.removeEventListener('touchend', handleCropDragEnd);
+    };
+  }, [isDraggingCrop, handleCropDrag, handleCropDragEnd]);
+
+  // Apply edits and save
+  const saveEdits = async () => {
+    if (!editingImage || editingIndex === null) return;
+    
+    setProcessing(true);
+    setProcessingStatus('Applying edits...');
+    
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = editingImage;
+      });
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Calculate dimensions based on rotation
+      const isRotated90or270 = rotation === 90 || rotation === 270;
+      let sourceWidth = img.width;
+      let sourceHeight = img.height;
+      
+      if (isRotated90or270) {
+        canvas.width = sourceHeight;
+        canvas.height = sourceWidth;
+      } else {
+        canvas.width = sourceWidth;
+        canvas.height = sourceHeight;
+      }
+      
+      // Apply rotation
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((rotation * Math.PI) / 180);
+      
+      if (isRotated90or270) {
+        ctx.drawImage(img, -sourceWidth / 2, -sourceHeight / 2);
+      } else {
+        ctx.drawImage(img, -sourceWidth / 2, -sourceHeight / 2);
+      }
+      ctx.restore();
+      
+      // If crop mode is active, apply crop
+      let finalCanvas = canvas;
+      if (cropMode) {
+        const cropX = (cropArea.x / 100) * canvas.width;
+        const cropY = (cropArea.y / 100) * canvas.height;
+        const cropW = (cropArea.width / 100) * canvas.width;
+        const cropH = (cropArea.height / 100) * canvas.height;
+        
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = cropW;
+        croppedCanvas.height = cropH;
+        const croppedCtx = croppedCanvas.getContext('2d');
+        croppedCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        finalCanvas = croppedCanvas;
+      }
+      
+      // Convert to blob
+      const blob = await new Promise((resolve) => {
+        finalCanvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92);
+      });
+      
+      // Update capturedImages array
+      setCapturedImages((prev) => {
+        const newImages = [...prev];
+        newImages[editingIndex] = blob;
+        return newImages;
+      });
+      
+      // Close editor
+      closeEditor();
+      
+    } catch (err) {
+      console.error('Error saving edits:', err);
+      setError('Failed to save edits');
+    } finally {
+      setProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
+  // ==================== END IMAGE EDITOR FUNCTIONS ====================
 
   // Extract text from all images
   const extractTextFromAll = async () => {
@@ -1067,7 +1298,7 @@ ${translatedText}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="font-bold text-2xl">{capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''} Ready</h2>
-          <p className="text-gray-600">Review, add more, or process your documents</p>
+          <p className="text-gray-600">Tap image to edit • Crop & rotate</p>
         </div>
         <button
           onClick={startNewScan}
@@ -1077,21 +1308,34 @@ ${translatedText}
         </button>
       </div>
       
-      {/* Main preview */}
+      {/* Main preview - Tap to edit */}
       <div className="relative bg-gray-100 rounded-2xl p-4 mb-4">
         {capturedImages.length > 0 && (
           <>
-            <img
-              src={getImageUrl(capturedImages[currentPreviewIndex])}
-              alt={`Page ${currentPreviewIndex + 1}`}
-              className="w-full max-h-[400px] object-contain rounded-xl mx-auto"
-            />
+            {/* Clickable image to open editor */}
+            <div 
+              onClick={() => openEditor(currentPreviewIndex)}
+              className="cursor-pointer relative group"
+            >
+              <img
+                src={getImageUrl(capturedImages[currentPreviewIndex])}
+                alt={`Page ${currentPreviewIndex + 1}`}
+                className="w-full max-h-[400px] object-contain rounded-xl mx-auto"
+              />
+              {/* Edit overlay on hover */}
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded-xl flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transition-all bg-white px-4 py-2 rounded-full flex items-center gap-2 shadow-lg">
+                  <Crop className="w-5 h-5 text-primary-600" />
+                  <span className="font-medium text-primary-600">Tap to Edit</span>
+                </div>
+              </div>
+            </div>
             
             {/* Navigation arrows */}
             {capturedImages.length > 1 && (
               <>
                 <button
-                  onClick={() => setCurrentPreviewIndex(prev => Math.max(0, prev - 1))}
+                  onClick={(e) => { e.stopPropagation(); setCurrentPreviewIndex(prev => Math.max(0, prev - 1)); }}
                   disabled={currentPreviewIndex === 0}
                   className={`absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center ${
                     currentPreviewIndex === 0 ? 'bg-gray-200 text-gray-400' : 'bg-white shadow text-gray-700 hover:bg-gray-50'
@@ -1100,7 +1344,7 @@ ${translatedText}
                   <ChevronLeft className="w-6 h-6" />
                 </button>
                 <button
-                  onClick={() => setCurrentPreviewIndex(prev => Math.min(capturedImages.length - 1, prev + 1))}
+                  onClick={(e) => { e.stopPropagation(); setCurrentPreviewIndex(prev => Math.min(capturedImages.length - 1, prev + 1)); }}
                   disabled={currentPreviewIndex === capturedImages.length - 1}
                   className={`absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center ${
                     currentPreviewIndex === capturedImages.length - 1 ? 'bg-gray-200 text-gray-400' : 'bg-white shadow text-gray-700 hover:bg-gray-50'
@@ -1116,9 +1360,17 @@ ${translatedText}
               Page {currentPreviewIndex + 1} of {capturedImages.length}
             </div>
             
+            {/* Edit button */}
+            <button
+              onClick={(e) => { e.stopPropagation(); openEditor(currentPreviewIndex); }}
+              className="absolute top-2 left-2 w-10 h-10 bg-primary-500 text-white rounded-full flex items-center justify-center hover:bg-primary-600 shadow-lg"
+            >
+              <Crop className="w-5 h-5" />
+            </button>
+            
             {/* Delete button */}
             <button
-              onClick={() => deleteImage(currentPreviewIndex)}
+              onClick={(e) => { e.stopPropagation(); deleteImage(currentPreviewIndex); }}
               className="absolute top-2 right-2 w-10 h-10 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
             >
               <Trash2 className="w-5 h-5" />
@@ -1224,6 +1476,189 @@ ${translatedText}
         onChange={handleFileUpload}
         className="hidden"
       />
+    </div>
+  );
+
+  const renderEditor = () => (
+    <div className="fixed inset-0 bg-black z-50 flex flex-col">
+      {/* Header */}
+      <div className="bg-gray-900 px-4 py-3 flex items-center justify-between">
+        <button
+          onClick={closeEditor}
+          className="text-white flex items-center gap-2"
+        >
+          <X className="w-6 h-6" />
+          <span>Cancel</span>
+        </button>
+        
+        <h3 className="text-white font-medium">Edit Page {editingIndex + 1}</h3>
+        
+        <button
+          onClick={saveEdits}
+          disabled={processing}
+          className="bg-green-500 text-white px-4 py-1.5 rounded-full font-medium flex items-center gap-1"
+        >
+          {processing ? (
+            <Loader className="w-4 h-4 animate-spin" />
+          ) : (
+            <Check className="w-4 h-4" />
+          )}
+          <span>Save</span>
+        </button>
+      </div>
+      
+      {/* Editor Canvas Area */}
+      <div 
+        ref={editorContainerRef}
+        className="flex-1 relative overflow-hidden flex items-center justify-center bg-gray-800 p-4"
+      >
+        {editingImage && (
+          <div className="relative max-w-full max-h-full">
+            {/* Image with rotation */}
+            <img
+              src={editingImage}
+              alt="Editing"
+              className="max-w-full max-h-[60vh] object-contain transition-transform duration-200"
+              style={{ transform: `rotate(${rotation}deg)` }}
+            />
+            
+            {/* Crop Overlay */}
+            {cropMode && (
+              <div className="absolute inset-0" style={{ transform: `rotate(${rotation}deg)` }}>
+                {/* Dark overlay outside crop area */}
+                <div 
+                  className="absolute inset-0 bg-black/60"
+                  style={{
+                    clipPath: `polygon(
+                      0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%,
+                      ${cropArea.x}% ${cropArea.y}%,
+                      ${cropArea.x}% ${cropArea.y + cropArea.height}%,
+                      ${cropArea.x + cropArea.width}% ${cropArea.y + cropArea.height}%,
+                      ${cropArea.x + cropArea.width}% ${cropArea.y}%,
+                      ${cropArea.x}% ${cropArea.y}%
+                    )`
+                  }}
+                />
+                
+                {/* Crop area border */}
+                <div 
+                  className="absolute border-2 border-white"
+                  style={{
+                    left: `${cropArea.x}%`,
+                    top: `${cropArea.y}%`,
+                    width: `${cropArea.width}%`,
+                    height: `${cropArea.height}%`,
+                  }}
+                  onMouseDown={(e) => handleCropDragStart(e, 'move')}
+                  onTouchStart={(e) => handleCropDragStart(e, 'move')}
+                >
+                  {/* Grid lines */}
+                  <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/40" />
+                    <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/40" />
+                    <div className="absolute top-1/3 left-0 right-0 h-px bg-white/40" />
+                    <div className="absolute top-2/3 left-0 right-0 h-px bg-white/40" />
+                  </div>
+                  
+                  {/* Corner handles */}
+                  {/* Top-left */}
+                  <div 
+                    className="absolute -top-2 -left-2 w-6 h-6 cursor-nw-resize"
+                    onMouseDown={(e) => handleCropDragStart(e, 'nw')}
+                    onTouchStart={(e) => handleCropDragStart(e, 'nw')}
+                  >
+                    <div className="absolute top-2 left-2 w-4 h-1 bg-white" />
+                    <div className="absolute top-2 left-2 w-1 h-4 bg-white" />
+                  </div>
+                  
+                  {/* Top-right */}
+                  <div 
+                    className="absolute -top-2 -right-2 w-6 h-6 cursor-ne-resize"
+                    onMouseDown={(e) => handleCropDragStart(e, 'ne')}
+                    onTouchStart={(e) => handleCropDragStart(e, 'ne')}
+                  >
+                    <div className="absolute top-2 right-2 w-4 h-1 bg-white" />
+                    <div className="absolute top-2 right-2 w-1 h-4 bg-white" />
+                  </div>
+                  
+                  {/* Bottom-left */}
+                  <div 
+                    className="absolute -bottom-2 -left-2 w-6 h-6 cursor-sw-resize"
+                    onMouseDown={(e) => handleCropDragStart(e, 'sw')}
+                    onTouchStart={(e) => handleCropDragStart(e, 'sw')}
+                  >
+                    <div className="absolute bottom-2 left-2 w-4 h-1 bg-white" />
+                    <div className="absolute bottom-2 left-2 w-1 h-4 bg-white" />
+                  </div>
+                  
+                  {/* Bottom-right */}
+                  <div 
+                    className="absolute -bottom-2 -right-2 w-6 h-6 cursor-se-resize"
+                    onMouseDown={(e) => handleCropDragStart(e, 'se')}
+                    onTouchStart={(e) => handleCropDragStart(e, 'se')}
+                  >
+                    <div className="absolute bottom-2 right-2 w-4 h-1 bg-white" />
+                    <div className="absolute bottom-2 right-2 w-1 h-4 bg-white" />
+                  </div>
+                  
+                  {/* Move icon in center */}
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                    <Move className="w-8 h-8 text-white/70" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Tool Bar */}
+      <div className="bg-gray-900 px-4 py-4 safe-bottom">
+        <div className="flex items-center justify-center gap-4">
+          {/* Rotate Left */}
+          <button
+            onClick={() => rotateImage(-90)}
+            className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl hover:bg-gray-800 transition-colors"
+          >
+            <RotateCcw className="w-6 h-6 text-white" />
+            <span className="text-xs text-gray-400">Rotate Left</span>
+          </button>
+          
+          {/* Rotate Right */}
+          <button
+            onClick={() => rotateImage(90)}
+            className="flex flex-col items-center gap-1 px-4 py-2 rounded-xl hover:bg-gray-800 transition-colors"
+          >
+            <RotateCw className="w-6 h-6 text-white" />
+            <span className="text-xs text-gray-400">Rotate Right</span>
+          </button>
+          
+          {/* Crop Toggle */}
+          <button
+            onClick={toggleCropMode}
+            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-xl transition-colors ${
+              cropMode ? 'bg-primary-600' : 'hover:bg-gray-800'
+            }`}
+          >
+            <Crop className="w-6 h-6 text-white" />
+            <span className="text-xs text-gray-400">{cropMode ? 'Cropping' : 'Crop'}</span>
+          </button>
+        </div>
+        
+        {/* Crop instructions */}
+        {cropMode && (
+          <p className="text-center text-gray-400 text-sm mt-3">
+            Drag corners to adjust crop area • Drag center to move
+          </p>
+        )}
+        
+        {/* Rotation indicator */}
+        {rotation !== 0 && (
+          <p className="text-center text-gray-400 text-sm mt-2">
+            Rotated {rotation}°
+          </p>
+        )}
+      </div>
     </div>
   );
 
@@ -1446,6 +1881,7 @@ ${translatedText}
       {mode === 'select' && renderModeSelection()}
       {mode === 'camera' && renderCamera()}
       {mode === 'multipreview' && renderMultiPreview()}
+      {mode === 'editor' && renderEditor()}
       {mode === 'processing' && renderProcessing()}
       {mode === 'result' && renderResults()}
     </div>
