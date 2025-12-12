@@ -14,23 +14,27 @@ import {
   AlertCircle,
   Globe,
   Loader,
-  SwitchCamera,
   FileSpreadsheet,
   Sparkles,
-  ChevronDown,
   Clipboard,
+  Plus,
+  Trash2,
+  FileImage,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 const Scanner = () => {
   const { user, isAuthenticated } = useAuth();
   
   // State management
-  const [mode, setMode] = useState('select');
+  const [mode, setMode] = useState('select'); // 'select', 'camera', 'preview', 'multipreview', 'processing', 'result'
   const [stream, setStream] = useState(null);
-  const [facingMode, setFacingMode] = useState('environment');
-  const [capturedImage, setCapturedImage] = useState(null);
+  const [capturedImages, setCapturedImages] = useState([]); // Array of captured image blobs
+  const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState('');
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -38,7 +42,6 @@ const Scanner = () => {
   const [selectedLanguage, setSelectedLanguage] = useState('');
   const [summarizing, setSummarizing] = useState(false);
   const [summary, setSummary] = useState('');
-  const [showExportMenu, setShowExportMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   
@@ -46,7 +49,6 @@ const Scanner = () => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
-  const exportMenuRef = useRef(null);
   const dropZoneRef = useRef(null);
   
   const isNative = Capacitor.isNativePlatform();
@@ -65,17 +67,6 @@ const Scanner = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Close export menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
-        setShowExportMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   // Cleanup camera on unmount
   useEffect(() => {
     return () => {
@@ -88,10 +79,8 @@ const Scanner = () => {
   // Handle paste from clipboard
   useEffect(() => {
     const handlePaste = async (e) => {
-      // Only handle paste on select mode
-      if (mode !== 'select') return;
+      if (mode !== 'select' && mode !== 'multipreview') return;
       
-      // Check clipboard data
       const clipboardData = e.clipboardData || window.clipboardData;
       if (!clipboardData) return;
       
@@ -100,31 +89,29 @@ const Scanner = () => {
       
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        
-        // Check if it's an image
         if (item.type.indexOf('image') !== -1) {
           e.preventDefault();
           const file = item.getAsFile();
-          
           if (file) {
-            // Check file size
             if (file.size > 10 * 1024 * 1024) {
               setError('Image size should be less than 10MB');
               return;
             }
             setError('');
-            setUploadedFile(file);
-            setMode('preview');
+            // Add to captured images array
+            const blob = file;
+            setCapturedImages(prev => [...prev, blob]);
+            setCurrentPreviewIndex(capturedImages.length);
+            setMode('multipreview');
           }
           break;
         }
       }
     };
     
-    // Add listener to window
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [mode]);
+  }, [mode, capturedImages.length]);
 
   // Drag and drop handlers
   const handleDragEnter = (e) => {
@@ -153,54 +140,30 @@ const Scanner = () => {
     
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
-      const file = files[0];
-      if (file.type.startsWith('image/')) {
-        if (file.size > 10 * 1024 * 1024) {
-          setError('Image size should be less than 10MB');
-          return;
-        }
-        setUploadedFile(file);
-        setMode('preview');
-      } else {
-        setError('Please drop an image file');
-      }
+      handleMultipleFiles(Array.from(files));
     }
   };
 
-  // Handle paste button click
-  const handlePasteButton = async () => {
-    try {
-      // Use Clipboard API to read image
-      const clipboardItems = await navigator.clipboard.read();
-      
-      for (const clipboardItem of clipboardItems) {
-        for (const type of clipboardItem.types) {
-          if (type.startsWith('image/')) {
-            const blob = await clipboardItem.getType(type);
-            const file = new File([blob], 'pasted-image.png', { type: type });
-            
-            if (file.size > 10 * 1024 * 1024) {
-              setError('Image size should be less than 10MB');
-              return;
-            }
-            
-            setError('');
-            setUploadedFile(file);
-            setMode('preview');
-            return;
-          }
-        }
-      }
-      
-      setError('No image found in clipboard. Copy an image first!');
-    } catch (err) {
-      console.error('Paste error:', err);
-      // Fallback message if clipboard API fails
-      setError('Could not access clipboard. Try pressing Ctrl+V / Cmd+V instead.');
+  const handleMultipleFiles = (files) => {
+    const imageFiles = files.filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) {
+      setError('Please select image files');
+      return;
     }
+    
+    const oversizedFiles = imageFiles.filter(file => file.size > 10 * 1024 * 1024);
+    if (oversizedFiles.length > 0) {
+      setError('Some images are larger than 10MB');
+      return;
+    }
+    
+    setError('');
+    setCapturedImages(prev => [...prev, ...imageFiles]);
+    setCurrentPreviewIndex(capturedImages.length);
+    setMode('multipreview');
   };
 
-  // Camera functions
+  // Camera functions - ALWAYS use back camera for document scanning
   const startCamera = async () => {
     try {
       setError('');
@@ -208,26 +171,30 @@ const Scanner = () => {
         stream.getTracks().forEach(track => track.stop());
       }
       
-      // Request camera with specific facing mode
       const constraints = {
         video: { 
-          facingMode: { ideal: facingMode },
+          facingMode: { exact: 'environment' },
           width: { ideal: 1920 }, 
           height: { ideal: 1080 } 
         }
       };
       
-      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(newStream);
-      
-      // Check actual camera being used
-      const videoTrack = newStream.getVideoTracks()[0];
-      const settings = videoTrack.getSettings();
-      
-      // Update facingMode based on actual camera (some devices report this)
-      if (settings.facingMode) {
-        setFacingMode(settings.facingMode);
+      let newStream;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        console.log('Exact environment camera failed, trying fallback...');
+        const fallbackConstraints = {
+          video: { 
+            facingMode: 'environment',
+            width: { ideal: 1920 }, 
+            height: { ideal: 1080 } 
+          }
+        };
+        newStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
       }
+      
+      setStream(newStream);
       
       if (videoRef.current) {
         videoRef.current.srcObject = newStream;
@@ -239,52 +206,6 @@ const Scanner = () => {
     }
   };
 
-  const switchCamera = async () => {
-    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
-    setFacingMode(newFacingMode);
-    
-    // Stop current stream
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-    }
-    
-    try {
-      const constraints = {
-        video: { 
-          facingMode: { exact: newFacingMode },
-          width: { ideal: 1920 }, 
-          height: { ideal: 1080 } 
-        }
-      };
-      
-      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      setStream(newStream);
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = newStream;
-      }
-    } catch (err) {
-      // If exact facingMode fails, try with ideal
-      try {
-        const constraints = {
-          video: { 
-            facingMode: { ideal: newFacingMode },
-            width: { ideal: 1920 }, 
-            height: { ideal: 1080 } 
-          }
-        };
-        const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-        setStream(newStream);
-        if (videoRef.current) {
-          videoRef.current.srcObject = newStream;
-        }
-      } catch (err2) {
-        console.error('Switch camera error:', err2);
-        setError('Could not switch camera');
-      }
-    }
-  };
-
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
@@ -293,51 +214,170 @@ const Scanner = () => {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     
-    // NEVER mirror for back camera (environment)
-    // Only mirror for front camera (user) - but even then, capture without mirror
-    // The preview is mirrored for selfie view, but captured image should be normal
-    
-    // Draw the image WITHOUT any mirroring - let the camera provide correct orientation
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
     canvas.toBlob((blob) => {
-      setCapturedImage(blob);
-      setMode('preview');
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        setStream(null);
-      }
+      setCapturedImages(prev => [...prev, blob]);
+      setCurrentPreviewIndex(capturedImages.length);
+      // Stay in camera mode for multi-capture
     }, 'image/jpeg', 0.95);
   };
+
+  const finishCapturing = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    if (capturedImages.length > 0) {
+      setMode('multipreview');
+    } else {
+      setMode('select');
+    }
   };
 
   const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Please upload an image file');
-      return;
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      handleMultipleFiles(files);
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setError('Image size should be less than 10MB');
-      return;
-    }
-    setUploadedFile(file);
-    setMode('preview');
   };
 
-  const getPreviewUrl = () => {
-    if (capturedImage) return URL.createObjectURL(capturedImage);
-    if (uploadedFile) return URL.createObjectURL(uploadedFile);
+  const handlePasteButton = async () => {
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      
+      for (const clipboardItem of clipboardItems) {
+        for (const type of clipboardItem.types) {
+          if (type.startsWith('image/')) {
+            const blob = await clipboardItem.getType(type);
+            
+            if (blob.size > 10 * 1024 * 1024) {
+              setError('Image size should be less than 10MB');
+              return;
+            }
+            
+            setError('');
+            setCapturedImages(prev => [...prev, blob]);
+            setCurrentPreviewIndex(capturedImages.length);
+            setMode('multipreview');
+            return;
+          }
+        }
+      }
+      
+      setError('No image found in clipboard. Copy an image first!');
+    } catch (err) {
+      console.error('Paste error:', err);
+      setError('Could not access clipboard. Try pressing Ctrl+V / Cmd+V instead.');
+    }
+  };
+
+  const getImageUrl = (blob) => {
+    if (blob) return URL.createObjectURL(blob);
     return null;
   };
 
-  // Process OCR
-  const processOCR = async () => {
-    if (!canScan) {
-      setError('You have reached your daily scan limit. Please upgrade your plan.');
-      return;
+  const deleteImage = (index) => {
+    setCapturedImages(prev => prev.filter((_, i) => i !== index));
+    if (currentPreviewIndex >= capturedImages.length - 1) {
+      setCurrentPreviewIndex(Math.max(0, capturedImages.length - 2));
     }
+    if (capturedImages.length === 1) {
+      setMode('select');
+    }
+  };
+
+  const addMoreImages = () => {
+    if (isMobile) {
+      startCamera();
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  // Create PDF with enhanced images
+  const createPDF = async () => {
+    if (capturedImages.length === 0) return;
+    
+    setProcessing(true);
+    setProcessingStatus('Enhancing images...');
+    setProgress(0);
+    setError('');
+    
+    try {
+      const response = await ocrAPI.createPDF(capturedImages, (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        setProgress(percentCompleted);
+      });
+      
+      if (response.success) {
+        // Download the PDF
+        const link = document.createElement('a');
+        link.href = `data:application/pdf;base64,${response.pdf}`;
+        link.download = `scan_${Date.now()}.pdf`;
+        link.click();
+        
+        setProcessingStatus('PDF created successfully!');
+        setTimeout(() => {
+          setProcessing(false);
+          setProcessingStatus('');
+        }, 2000);
+      } else {
+        setError(response.message || 'Failed to create PDF');
+        setProcessing(false);
+      }
+    } catch (err) {
+      console.error('PDF creation error:', err);
+      setError(err.response?.data?.message || 'Failed to create PDF');
+      setProcessing(false);
+    }
+  };
+
+  // Extract text from all images
+  const extractTextFromAll = async () => {
+    if (capturedImages.length === 0) return;
+    
+    setProcessing(true);
+    setProcessingStatus('Extracting text from all pages...');
+    setProgress(0);
+    setError('');
+    setMode('processing');
+    
+    try {
+      const response = await ocrAPI.extractMultiple(capturedImages, (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        setProgress(percentCompleted);
+      });
+      
+      if (response.success) {
+        setResult({
+          ocr: {
+            text: response.text,
+            confidence: response.confidence || 98,
+            pages: response.pages
+          }
+        });
+        setMode('result');
+      } else {
+        setError(response.message || 'OCR processing failed');
+        setMode('multipreview');
+      }
+    } catch (err) {
+      console.error('OCR error:', err);
+      setError(err.response?.data?.message || 'Failed to extract text');
+      setMode('multipreview');
+    } finally {
+      setProcessing(false);
+      setProgress(0);
+    }
+  };
+
+  // Single image OCR (for uploaded single file)
+  const processOCR = async () => {
+    if (capturedImages.length === 0 && !uploadedFile) return;
+    
+    const file = uploadedFile || capturedImages[0];
+    
     setProcessing(true);
     setProgress(0);
     setError('');
@@ -345,7 +385,6 @@ const Scanner = () => {
     setMode('processing');
     
     try {
-      const file = capturedImage || uploadedFile;
       const response = await ocrAPI.extractText(file, (progressEvent) => {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         setProgress(percentCompleted);
@@ -356,12 +395,12 @@ const Scanner = () => {
         setMode('result');
       } else {
         setError(response.message || 'OCR processing failed');
-        setMode('preview');
+        setMode('multipreview');
       }
     } catch (err) {
       console.error('OCR error:', err);
       setError(err.response?.data?.message || 'Failed to process image');
-      setMode('preview');
+      setMode('multipreview');
     } finally {
       setProcessing(false);
       setProgress(0);
@@ -391,7 +430,7 @@ const Scanner = () => {
     URL.revokeObjectURL(url);
   };
 
-  // Download as Word (HTML-based DOCX)
+  // Download as Word
   const downloadAsWord = () => {
     if (!result?.ocr?.text) return;
     
@@ -399,7 +438,6 @@ const Scanner = () => {
     const translatedText = result?.translation?.translatedText || '';
     const summaryText = summary || '';
     
-    // Create HTML content for Word
     const htmlContent = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
       <head><meta charset="utf-8"><title>Extracted Text</title></head>
@@ -440,47 +478,39 @@ ${translatedText}
     a.download = `scan_${Date.now()}.doc`;
     a.click();
     URL.revokeObjectURL(url);
-    setShowExportMenu(false);
   };
 
-  // Download as Excel (CSV format)
+  // Download as Excel
   const downloadAsExcel = () => {
     if (!result?.ocr?.text) return;
     
     const text = result.ocr.text;
     const lines = text.split('\n').filter(line => line.trim());
     
-    // Try to detect if it's tabular data
     let csvContent = '';
     
-    // Check if lines contain common delimiters
     const hasDelimiters = lines.some(line => 
       line.includes('|') || line.includes('\t') || line.includes('  ')
     );
     
     if (hasDelimiters) {
-      // Parse as table
       lines.forEach(line => {
-        // Replace multiple spaces or pipes with comma
         let cells = line
           .split(/[|\t]/)
           .map(cell => cell.trim())
-          .filter(cell => cell && !cell.match(/^[-=]+$/)); // Remove separator lines
+          .filter(cell => cell && !cell.match(/^[-=]+$/));
         
         if (cells.length > 0) {
-          // Escape quotes and wrap in quotes
           const csvRow = cells.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',');
           csvContent += csvRow + '\n';
         }
       });
     } else {
-      // Single column - each line is a row
       lines.forEach(line => {
         csvContent += `"${line.replace(/"/g, '""')}"\n`;
       });
     }
     
-    // Add BOM for Excel to recognize UTF-8
     const BOM = '\uFEFF';
     const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -489,7 +519,6 @@ ${translatedText}
     a.download = `scan_${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    setShowExportMenu(false);
   };
 
   // AI Summary
@@ -543,7 +572,8 @@ ${translatedText}
 
   // Reset
   const startNewScan = () => {
-    setCapturedImage(null);
+    setCapturedImages([]);
+    setCurrentPreviewIndex(0);
     setUploadedFile(null);
     setResult(null);
     setError('');
@@ -561,7 +591,7 @@ ${translatedText}
           AI Document Scanner
         </h1>
         <p className="text-gray-600">
-          Scan documents, extract text, translate & export in seconds
+          Scan multiple pages, create PDF & extract text
         </p>
         
         {!isAuthenticated && (
@@ -574,10 +604,9 @@ ${translatedText}
         )}
       </div>
       
-      {/* DESKTOP VIEW - Drag & Drop, Browse, Paste */}
+      {/* DESKTOP VIEW */}
       {!isMobile && (
         <>
-          {/* Drag & Drop Zone */}
           <div
             ref={dropZoneRef}
             onDragEnter={handleDragEnter}
@@ -597,9 +626,9 @@ ${translatedText}
                 <Upload className={`w-10 h-10 ${isDragging ? 'text-primary-600' : 'text-gray-400'}`} />
               </div>
               <p className="font-semibold text-xl mb-2">
-                {isDragging ? 'Drop your image here!' : 'Drag & Drop your image here'}
+                {isDragging ? 'Drop your images here!' : 'Drag & Drop images here'}
               </p>
-              <p className="text-gray-500 text-sm mb-6">Supports: JPG, PNG, WEBP, TIFF (Max 10MB)</p>
+              <p className="text-gray-500 text-sm mb-6">You can select multiple images at once</p>
               
               <div className="flex flex-wrap items-center justify-center gap-4">
                 <button
@@ -617,17 +646,16 @@ ${translatedText}
                   Paste Image
                 </button>
               </div>
-              <p className="text-gray-400 text-sm mt-4">or press Ctrl+V / Cmd+V to paste from clipboard</p>
+              <p className="text-gray-400 text-sm mt-4">Supports: JPG, PNG, WEBP (Max 10MB each)</p>
             </div>
           </div>
         </>
       )}
       
-      {/* MOBILE VIEW - Camera + Upload buttons */}
+      {/* MOBILE VIEW */}
       {isMobile && (
         <>
           <div className="grid grid-cols-2 gap-4 mb-6">
-            {/* Camera Option */}
             <button
               onClick={startCamera}
               disabled={!canScan}
@@ -639,12 +667,11 @@ ${translatedText}
                 </div>
                 <div>
                   <h3 className="font-bold text-lg">Camera</h3>
-                  <p className="text-gray-600 text-xs">Take a photo</p>
+                  <p className="text-gray-600 text-xs">Scan documents</p>
                 </div>
               </div>
             </button>
             
-            {/* Upload Option */}
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={!canScan}
@@ -656,22 +683,10 @@ ${translatedText}
                 </div>
                 <div>
                   <h3 className="font-bold text-lg">Gallery</h3>
-                  <p className="text-gray-600 text-xs">Choose image</p>
+                  <p className="text-gray-600 text-xs">Choose images</p>
                 </div>
               </div>
             </button>
-          </div>
-          
-          {/* Drag & Drop hint for mobile (smaller) */}
-          <div
-            ref={dropZoneRef}
-            onDragEnter={handleDragEnter}
-            onDragLeave={handleDragLeave}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
-            className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center"
-          >
-            <p className="text-gray-500 text-sm">Or drag & drop an image here</p>
           </div>
         </>
       )}
@@ -680,6 +695,7 @@ ${translatedText}
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        multiple
         onChange={handleFileUpload}
         className="hidden"
       />
@@ -696,70 +712,250 @@ ${translatedText}
   );
 
   const renderCamera = () => (
-    <div className="max-w-2xl mx-auto">
-      <div className="relative">
-        <div className="bg-black rounded-2xl overflow-hidden aspect-video">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            className="w-full h-full object-cover"
-          />
-          {/* No transform/mirror - show camera feed as-is */}
+    <div className="fixed inset-0 bg-black z-50 flex flex-col">
+      {/* Page counter */}
+      {capturedImages.length > 0 && (
+        <div className="absolute top-4 left-4 z-10 bg-primary-600 text-white px-3 py-1 rounded-full text-sm font-medium">
+          {capturedImages.length} page{capturedImages.length > 1 ? 's' : ''} captured
+        </div>
+      )}
+      
+      {/* Camera preview */}
+      <div className="flex-1 relative">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          className="w-full h-full object-cover"
+        />
+        
+        {/* Document guide frame */}
+        <div className="absolute inset-4 border-2 border-white/30 rounded-2xl pointer-events-none">
+          <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-xl"></div>
+          <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-xl"></div>
+          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-xl"></div>
+          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-xl"></div>
         </div>
         
-        <div className="mt-6 flex items-center justify-center space-x-4">
+        <div className="absolute top-6 left-0 right-0 text-center">
+          <span className="bg-black/50 text-white px-4 py-2 rounded-full text-sm">
+            Position document within frame
+          </span>
+        </div>
+      </div>
+      
+      {/* Thumbnail strip */}
+      {capturedImages.length > 0 && (
+        <div className="bg-black/80 px-4 py-2">
+          <div className="flex gap-2 overflow-x-auto">
+            {capturedImages.map((img, index) => (
+              <div key={index} className="relative flex-shrink-0">
+                <img
+                  src={getImageUrl(img)}
+                  alt={`Page ${index + 1}`}
+                  className="w-12 h-16 object-cover rounded border-2 border-white/50"
+                />
+                <span className="absolute bottom-0 right-0 bg-primary-600 text-white text-xs px-1 rounded-tl">
+                  {index + 1}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* Bottom controls */}
+      <div className="bg-black/90 px-6 py-6 safe-bottom">
+        <div className="flex items-center justify-between">
+          {/* Cancel button */}
           <button
             onClick={() => {
               if (stream) stream.getTracks().forEach(track => track.stop());
               setStream(null);
-              setMode('select');
+              if (capturedImages.length > 0) {
+                setMode('multipreview');
+              } else {
+                setMode('select');
+              }
             }}
-            className="btn-outline"
+            className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-white"
           >
-            <X className="w-5 h-5" />
-            <span>Cancel</span>
+            <X className="w-6 h-6" />
           </button>
           
-          <button onClick={switchCamera} className="btn-outline">
-            <SwitchCamera className="w-5 h-5" />
-            <span>Flip</span>
-          </button>
-          
+          {/* Capture button */}
           <button
             onClick={capturePhoto}
-            className="w-16 h-16 bg-gradient-to-r from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white shadow-lg hover:shadow-xl transition-all"
+            className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-lg"
           >
-            <Camera className="w-8 h-8" />
+            <div className="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center">
+              <Camera className="w-8 h-8 text-white" />
+            </div>
+          </button>
+          
+          {/* Done button */}
+          <button
+            onClick={finishCapturing}
+            disabled={capturedImages.length === 0}
+            className={`px-4 py-2 rounded-full font-medium ${
+              capturedImages.length > 0
+                ? 'bg-green-500 text-white'
+                : 'bg-white/20 text-white/50'
+            }`}
+          >
+            Done
           </button>
         </div>
       </div>
+      
       <canvas ref={canvasRef} className="hidden" />
     </div>
   );
 
-  const renderPreview = () => (
-    <div className="max-w-2xl mx-auto">
-      <div className="text-center mb-6">
-        <h2 className="font-bold text-2xl mb-2">Preview</h2>
-        <p className="text-gray-600">Review your image before processing</p>
+  const renderMultiPreview = () => (
+    <div className="max-w-4xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="font-bold text-2xl">{capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''} Ready</h2>
+          <p className="text-gray-600">Review, add more, or process your documents</p>
+        </div>
+        <button
+          onClick={startNewScan}
+          className="text-red-500 hover:text-red-600 font-medium"
+        >
+          Clear All
+        </button>
       </div>
       
-      <div className="card p-2">
-        <img src={getPreviewUrl()} alt="Preview" className="w-full rounded-xl" />
+      {/* Main preview */}
+      <div className="relative bg-gray-100 rounded-2xl p-4 mb-4">
+        {capturedImages.length > 0 && (
+          <>
+            <img
+              src={getImageUrl(capturedImages[currentPreviewIndex])}
+              alt={`Page ${currentPreviewIndex + 1}`}
+              className="w-full max-h-[400px] object-contain rounded-xl mx-auto"
+            />
+            
+            {/* Navigation arrows */}
+            {capturedImages.length > 1 && (
+              <>
+                <button
+                  onClick={() => setCurrentPreviewIndex(prev => Math.max(0, prev - 1))}
+                  disabled={currentPreviewIndex === 0}
+                  className={`absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center ${
+                    currentPreviewIndex === 0 ? 'bg-gray-200 text-gray-400' : 'bg-white shadow text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <button
+                  onClick={() => setCurrentPreviewIndex(prev => Math.min(capturedImages.length - 1, prev + 1))}
+                  disabled={currentPreviewIndex === capturedImages.length - 1}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center ${
+                    currentPreviewIndex === capturedImages.length - 1 ? 'bg-gray-200 text-gray-400' : 'bg-white shadow text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              </>
+            )}
+            
+            {/* Page indicator */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/70 text-white px-3 py-1 rounded-full text-sm">
+              Page {currentPreviewIndex + 1} of {capturedImages.length}
+            </div>
+            
+            {/* Delete button */}
+            <button
+              onClick={() => deleteImage(currentPreviewIndex)}
+              className="absolute top-2 right-2 w-10 h-10 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </>
+        )}
       </div>
       
-      <div className="mt-6 flex items-center justify-center space-x-4">
-        <button onClick={startNewScan} className="btn-outline">
-          <X className="w-5 h-5" />
-          <span>Retake</span>
+      {/* Thumbnail strip */}
+      <div className="flex gap-2 overflow-x-auto pb-4 mb-6">
+        {capturedImages.map((img, index) => (
+          <button
+            key={index}
+            onClick={() => setCurrentPreviewIndex(index)}
+            className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
+              currentPreviewIndex === index ? 'border-primary-500 ring-2 ring-primary-200' : 'border-gray-200'
+            }`}
+          >
+            <img
+              src={getImageUrl(img)}
+              alt={`Page ${index + 1}`}
+              className="w-16 h-20 object-cover"
+            />
+            <span className="absolute bottom-0 right-0 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded-tl">
+              {index + 1}
+            </span>
+          </button>
+        ))}
+        
+        {/* Add more button */}
+        <button
+          onClick={addMoreImages}
+          className="flex-shrink-0 w-16 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:border-primary-400 hover:text-primary-500 transition-colors"
+        >
+          <Plus className="w-6 h-6" />
+          <span className="text-xs">Add</span>
+        </button>
+      </div>
+      
+      {/* Action buttons */}
+      <div className="grid grid-cols-2 gap-4">
+        <button
+          onClick={createPDF}
+          disabled={processing}
+          className="btn-primary py-4 flex items-center justify-center gap-2"
+        >
+          {processing ? (
+            <>
+              <Loader className="w-5 h-5 animate-spin" />
+              <span>Creating PDF...</span>
+            </>
+          ) : (
+            <>
+              <FileImage className="w-5 h-5" />
+              <span>Create PDF</span>
+            </>
+          )}
         </button>
         
-        <button onClick={processOCR} disabled={processing} className="btn-primary">
-          <Zap className="w-5 h-5" />
+        <button
+          onClick={extractTextFromAll}
+          disabled={processing}
+          className="btn-outline py-4 flex items-center justify-center gap-2"
+        >
+          <FileText className="w-5 h-5" />
           <span>Extract Text</span>
         </button>
       </div>
+      
+      {/* Processing status */}
+      {processing && processingStatus && (
+        <div className="mt-4 p-4 bg-primary-50 rounded-xl">
+          <div className="flex items-center gap-3">
+            <Loader className="w-5 h-5 text-primary-600 animate-spin" />
+            <span className="text-primary-700">{processingStatus}</span>
+          </div>
+          {progress > 0 && (
+            <div className="mt-2 w-full bg-primary-200 rounded-full h-2">
+              <div
+                className="bg-primary-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
       
       {error && (
         <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
@@ -776,8 +972,8 @@ ${translatedText}
     <div className="max-w-2xl mx-auto">
       <div className="card text-center p-8">
         <Loader className="w-12 h-12 text-primary-600 animate-spin mx-auto mb-6" />
-        <h2 className="font-bold text-2xl mb-2">Processing Image...</h2>
-        <p className="text-gray-600 mb-6">Our AI is extracting text from your document</p>
+        <h2 className="font-bold text-2xl mb-2">Processing {capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''}...</h2>
+        <p className="text-gray-600 mb-6">Our AI is extracting text from your documents</p>
         <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
           <div
             className="bg-gradient-to-r from-primary-500 to-primary-600 h-3 rounded-full transition-all duration-300"
@@ -792,66 +988,55 @@ ${translatedText}
   const renderResults = () => (
     <div className="max-w-5xl mx-auto">
       {/* New Scan Button - Top */}
-      <div className="mb-6 flex justify-end">
+      <div className="mb-6 flex justify-between items-center">
+        <h2 className="font-bold text-2xl">Extraction Results</h2>
         <button onClick={startNewScan} className="btn-primary">
           <Camera className="w-5 h-5" />
           <span>New Scan</span>
         </button>
       </div>
       
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Original image */}
-        <div>
-          <h3 className="font-bold text-lg mb-4">Original Image</h3>
-          <div className="card p-2">
-            <img src={getPreviewUrl()} alt="Scanned" className="w-full rounded-xl" />
-          </div>
+      {/* Extracted text */}
+      <div className="card mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg">Extracted Text</h3>
+          <span className="px-2 py-1 bg-green-100 text-green-700 text-sm rounded-full">
+            {Math.round(result?.ocr?.confidence || 98)}% accuracy
+          </span>
         </div>
         
-        {/* Extracted text */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-lg">Extracted Text</h3>
-            <span className="px-2 py-1 bg-green-100 text-green-700 text-sm rounded-full">
-              {Math.round(result?.ocr?.confidence || 98)}% accuracy
-            </span>
-          </div>
+        <textarea
+          value={result?.ocr?.text || ''}
+          readOnly
+          className="w-full min-h-[300px] p-3 border border-gray-200 rounded-xl font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
+        />
+        
+        {/* Action buttons */}
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button onClick={copyText} className="btn-outline text-sm py-2">
+            <Copy className="w-4 h-4" />
+            <span>Copy</span>
+          </button>
           
-          <div className="card">
-            <textarea
-              value={result?.ocr?.text || ''}
-              readOnly
-              className="w-full min-h-[250px] p-3 border border-gray-200 rounded-xl font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
-            />
-            
-            {/* Action buttons */}
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button onClick={copyText} className="btn-outline text-sm py-2">
-                <Copy className="w-4 h-4" />
-                <span>Copy</span>
-              </button>
-              
-              <button onClick={downloadText} className="btn-outline text-sm py-2">
-                <Download className="w-4 h-4" />
-                <span>TXT</span>
-              </button>
-              
-              <button onClick={downloadAsWord} className="btn-outline text-sm py-2">
-                <FileText className="w-4 h-4" />
-                <span>Word</span>
-              </button>
-              
-              <button onClick={downloadAsExcel} className="btn-outline text-sm py-2">
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>Excel</span>
-              </button>
-            </div>
-          </div>
+          <button onClick={downloadText} className="btn-outline text-sm py-2">
+            <Download className="w-4 h-4" />
+            <span>TXT</span>
+          </button>
+          
+          <button onClick={downloadAsWord} className="btn-outline text-sm py-2">
+            <FileText className="w-4 h-4" />
+            <span>Word</span>
+          </button>
+          
+          <button onClick={downloadAsExcel} className="btn-outline text-sm py-2">
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Excel</span>
+          </button>
         </div>
       </div>
       
       {/* AI Summary Section */}
-      <div className="mt-6 card">
+      <div className="card mb-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-lg flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
@@ -888,7 +1073,7 @@ ${translatedText}
       </div>
       
       {/* Translation Section */}
-      <div className="mt-6 card">
+      <div className="card">
         <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
           <Globe className="w-5 h-5 text-blue-500" />
           Translate Text
@@ -902,7 +1087,6 @@ ${translatedText}
           >
             <option value="">Select language...</option>
             
-            {/* Indian Languages */}
             <optgroup label="Indian Languages">
               <option value="hi">Hindi (हिन्दी)</option>
               <option value="bn">Bengali (বাংলা)</option>
@@ -917,7 +1101,6 @@ ${translatedText}
               <option value="ur">Urdu (اردو)</option>
             </optgroup>
             
-            {/* European Languages */}
             <optgroup label="European Languages">
               <option value="en">English</option>
               <option value="es">Spanish (Español)</option>
@@ -932,7 +1115,6 @@ ${translatedText}
               <option value="el">Greek (Ελληνικά)</option>
             </optgroup>
             
-            {/* Asian Languages */}
             <optgroup label="Asian Languages">
               <option value="zh">Chinese (中文)</option>
               <option value="ja">Japanese (日本語)</option>
@@ -944,7 +1126,6 @@ ${translatedText}
               <option value="tl">Filipino (Tagalog)</option>
             </optgroup>
             
-            {/* Middle Eastern Languages */}
             <optgroup label="Middle Eastern Languages">
               <option value="ar">Arabic (العربية)</option>
               <option value="fa">Persian (فارسی)</option>
@@ -952,7 +1133,6 @@ ${translatedText}
               <option value="tr">Turkish (Türkçe)</option>
             </optgroup>
             
-            {/* African Languages */}
             <optgroup label="African Languages">
               <option value="sw">Swahili (Kiswahili)</option>
               <option value="am">Amharic (አማርኛ)</option>
@@ -991,7 +1171,6 @@ ${translatedText}
         )}
       </div>
       
-      {/* Error display */}
       {error && (
         <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
           <div className="flex items-start space-x-3">
@@ -1000,14 +1179,6 @@ ${translatedText}
           </div>
         </div>
       )}
-      
-      {/* New scan button */}
-      <div className="mt-8 text-center">
-        <button onClick={startNewScan} className="btn-primary">
-          <Camera className="w-5 h-5" />
-          <span>Scan New Document</span>
-        </button>
-      </div>
     </div>
   );
 
@@ -1015,7 +1186,7 @@ ${translatedText}
     <div className="p-4 sm:p-6 lg:p-8 pb-24">
       {mode === 'select' && renderModeSelection()}
       {mode === 'camera' && renderCamera()}
-      {mode === 'preview' && renderPreview()}
+      {mode === 'multipreview' && renderMultiPreview()}
       {mode === 'processing' && renderProcessing()}
       {mode === 'result' && renderResults()}
     </div>
