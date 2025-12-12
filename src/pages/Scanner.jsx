@@ -167,42 +167,73 @@ const Scanner = () => {
   const startCamera = async () => {
     try {
       setError('');
+      
+      // Stop any existing stream first
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
+        setStream(null);
       }
       
-      const constraints = {
-        video: { 
-          facingMode: { exact: 'environment' },
-          width: { ideal: 1920 }, 
-          height: { ideal: 1080 } 
-        }
-      };
+      // Set camera mode first so UI shows
+      setMode('camera');
       
+      // Small delay to ensure video element is mounted
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Try to get back camera first
       let newStream;
+      
       try {
-        newStream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err) {
-        console.log('Exact environment camera failed, trying fallback...');
-        const fallbackConstraints = {
+        // First try: exact environment (back camera)
+        newStream = await navigator.mediaDevices.getUserMedia({
           video: { 
-            facingMode: 'environment',
+            facingMode: { exact: 'environment' },
             width: { ideal: 1920 }, 
             height: { ideal: 1080 } 
-          }
-        };
-        newStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          },
+          audio: false
+        });
+      } catch (err) {
+        console.log('Back camera not available, trying any camera...');
+        try {
+          // Second try: prefer environment but accept any
+          newStream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+              facingMode: 'environment',
+              width: { ideal: 1920 }, 
+              height: { ideal: 1080 } 
+            },
+            audio: false
+          });
+        } catch (err2) {
+          console.log('Environment mode failed, trying default camera...');
+          // Third try: any available camera
+          newStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1920 }, 
+              height: { ideal: 1080 }
+            },
+            audio: false
+          });
+        }
       }
       
       setStream(newStream);
       
+      // Wait for video element and set stream
       if (videoRef.current) {
         videoRef.current.srcObject = newStream;
+        
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current.play().catch(e => console.log('Video play error:', e));
+        };
       }
-      setMode('camera');
+      
     } catch (err) {
       console.error('Camera error:', err);
-      setError('Failed to access camera. Please check permissions.');
+      setError('Failed to access camera. Please check permissions and try again.');
+      setMode('select');
     }
   };
 
@@ -722,26 +753,42 @@ ${translatedText}
       
       {/* Camera preview */}
       <div className="flex-1 relative">
+        {/* Loading indicator while camera initializes */}
+        {!stream && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+            <div className="text-center">
+              <Loader className="w-10 h-10 text-white animate-spin mx-auto mb-3" />
+              <p className="text-white">Starting camera...</p>
+            </div>
+          </div>
+        )}
+        
         <video
           ref={videoRef}
           autoPlay
           playsInline
+          muted
           className="w-full h-full object-cover"
+          style={{ display: stream ? 'block' : 'none' }}
         />
         
         {/* Document guide frame */}
-        <div className="absolute inset-4 border-2 border-white/30 rounded-2xl pointer-events-none">
-          <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-xl"></div>
-          <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-xl"></div>
-          <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-xl"></div>
-          <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-xl"></div>
-        </div>
-        
-        <div className="absolute top-6 left-0 right-0 text-center">
-          <span className="bg-black/50 text-white px-4 py-2 rounded-full text-sm">
-            Position document within frame
-          </span>
-        </div>
+        {stream && (
+          <>
+            <div className="absolute inset-4 border-2 border-white/30 rounded-2xl pointer-events-none">
+              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-xl"></div>
+              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-xl"></div>
+              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-xl"></div>
+              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-xl"></div>
+            </div>
+            
+            <div className="absolute top-6 left-0 right-0 text-center">
+              <span className="bg-black/50 text-white px-4 py-2 rounded-full text-sm">
+                Position document within frame
+              </span>
+            </div>
+          </>
+        )}
       </div>
       
       {/* Thumbnail strip */}
@@ -770,8 +817,10 @@ ${translatedText}
           {/* Cancel button */}
           <button
             onClick={() => {
-              if (stream) stream.getTracks().forEach(track => track.stop());
-              setStream(null);
+              if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                setStream(null);
+              }
               if (capturedImages.length > 0) {
                 setMode('multipreview');
               } else {
@@ -786,9 +835,14 @@ ${translatedText}
           {/* Capture button */}
           <button
             onClick={capturePhoto}
-            className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-lg"
+            disabled={!stream}
+            className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg ${
+              stream ? 'bg-white' : 'bg-white/50'
+            }`}
           >
-            <div className="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center">
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
+              stream ? 'bg-primary-600' : 'bg-primary-400'
+            }`}>
               <Camera className="w-8 h-8 text-white" />
             </div>
           </button>
