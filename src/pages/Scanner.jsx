@@ -38,12 +38,14 @@ const Scanner = () => {
   const [summarizing, setSummarizing] = useState(false);
   const [summary, setSummary] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   
   // Refs
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const exportMenuRef = useRef(null);
+  const dropZoneRef = useRef(null);
   
   const isNative = Capacitor.isNativePlatform();
   const canScan = isAuthenticated ? (user?.canScan?.() ?? true) : true;
@@ -67,6 +69,72 @@ const Scanner = () => {
       }
     };
   }, [stream]);
+
+  // Handle paste from clipboard
+  useEffect(() => {
+    const handlePaste = async (e) => {
+      if (mode !== 'select') return;
+      
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            setUploadedFile(file);
+            setMode('preview');
+          }
+          break;
+        }
+      }
+    };
+    
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [mode]);
+
+  // Drag and drop handlers
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.target === dropZoneRef.current) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (file.type.startsWith('image/')) {
+        if (file.size > 10 * 1024 * 1024) {
+          setError('Image size should be less than 10MB');
+          return;
+        }
+        setUploadedFile(file);
+        setMode('preview');
+      } else {
+        setError('Please drop an image file');
+      }
+    }
+  };
 
   // Camera functions
   const startCamera = async () => {
@@ -379,6 +447,47 @@ ${translatedText}
         )}
       </div>
       
+      {/* Drag & Drop Zone */}
+      <div
+        ref={dropZoneRef}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        className={`mb-6 border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
+          isDragging 
+            ? 'border-primary-500 bg-primary-50' 
+            : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
+        }`}
+      >
+        <div className="flex flex-col items-center">
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
+            isDragging ? 'bg-primary-100' : 'bg-gray-100'
+          }`}>
+            <Upload className={`w-8 h-8 ${isDragging ? 'text-primary-600' : 'text-gray-400'}`} />
+          </div>
+          <p className="font-semibold text-lg mb-1">
+            {isDragging ? 'Drop your image here!' : 'Drag & Drop your image here'}
+          </p>
+          <p className="text-gray-500 text-sm mb-3">or paste from clipboard (Ctrl+V / Cmd+V)</p>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-primary-600 font-medium hover:text-primary-700 underline"
+          >
+            Browse files
+          </button>
+          <p className="text-gray-400 text-xs mt-2">Supports: JPG, PNG, WEBP, TIFF (Max 10MB)</p>
+        </div>
+      </div>
+      
+      {/* Or separator */}
+      <div className="flex items-center gap-4 mb-6">
+        <div className="flex-1 h-px bg-gray-200"></div>
+        <span className="text-gray-400 text-sm font-medium">OR</span>
+        <div className="flex-1 h-px bg-gray-200"></div>
+      </div>
+      
+      {/* Camera and Upload buttons */}
       <div className="grid md:grid-cols-2 gap-6">
         <button
           onClick={startCamera}
