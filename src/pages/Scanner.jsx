@@ -744,15 +744,47 @@ ${translatedText}
 
   const renderCamera = () => (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
-      {/* Page counter */}
-      {capturedImages.length > 0 && (
-        <div className="absolute top-4 left-4 z-10 bg-primary-600 text-white px-3 py-1 rounded-full text-sm font-medium">
-          {capturedImages.length} page{capturedImages.length > 1 ? 's' : ''} captured
-        </div>
-      )}
+      {/* Header with page counter */}
+      <div className="bg-black px-4 py-3 flex items-center justify-between">
+        <button
+          onClick={() => {
+            if (stream) {
+              stream.getTracks().forEach(track => track.stop());
+              setStream(null);
+            }
+            if (capturedImages.length > 0) {
+              setMode('multipreview');
+            } else {
+              setMode('select');
+            }
+          }}
+          className="text-white flex items-center gap-2"
+        >
+          <X className="w-6 h-6" />
+          <span>Cancel</span>
+        </button>
+        
+        {capturedImages.length > 0 && (
+          <div className="bg-primary-600 text-white px-3 py-1 rounded-full text-sm font-medium">
+            {capturedImages.length} page{capturedImages.length > 1 ? 's' : ''}
+          </div>
+        )}
+        
+        <button
+          onClick={finishCapturing}
+          disabled={capturedImages.length === 0}
+          className={`px-4 py-1 rounded-full font-medium ${
+            capturedImages.length > 0
+              ? 'bg-green-500 text-white'
+              : 'text-white/50'
+          }`}
+        >
+          Done
+        </button>
+      </div>
       
-      {/* Camera preview */}
-      <div className="flex-1 relative">
+      {/* Camera preview - 60% of screen */}
+      <div className="relative" style={{ height: '55vh' }}>
         {/* Loading indicator while camera initializes */}
         {!stream && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
@@ -775,15 +807,15 @@ ${translatedText}
         {/* Document guide frame */}
         {stream && (
           <>
-            <div className="absolute inset-4 border-2 border-white/30 rounded-2xl pointer-events-none">
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-white rounded-tl-xl"></div>
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-white rounded-tr-xl"></div>
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-white rounded-bl-xl"></div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-white rounded-br-xl"></div>
+            <div className="absolute inset-3 border-2 border-white/40 rounded-xl pointer-events-none">
+              <div className="absolute top-0 left-0 w-6 h-6 border-t-3 border-l-3 border-white rounded-tl-lg"></div>
+              <div className="absolute top-0 right-0 w-6 h-6 border-t-3 border-r-3 border-white rounded-tr-lg"></div>
+              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-3 border-l-3 border-white rounded-bl-lg"></div>
+              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-3 border-r-3 border-white rounded-br-lg"></div>
             </div>
             
-            <div className="absolute top-6 left-0 right-0 text-center">
-              <span className="bg-black/50 text-white px-4 py-2 rounded-full text-sm">
+            <div className="absolute top-4 left-0 right-0 text-center">
+              <span className="bg-black/60 text-white px-3 py-1 rounded-full text-xs">
                 Position document within frame
               </span>
             </div>
@@ -793,73 +825,56 @@ ${translatedText}
       
       {/* Thumbnail strip */}
       {capturedImages.length > 0 && (
-        <div className="bg-black/80 px-4 py-2">
+        <div className="bg-gray-900 px-4 py-3">
           <div className="flex gap-2 overflow-x-auto">
             {capturedImages.map((img, index) => (
               <div key={index} className="relative flex-shrink-0">
                 <img
                   src={getImageUrl(img)}
                   alt={`Page ${index + 1}`}
-                  className="w-12 h-16 object-cover rounded border-2 border-white/50"
+                  className="w-14 h-18 object-cover rounded-lg border-2 border-white/50"
                 />
-                <span className="absolute bottom-0 right-0 bg-primary-600 text-white text-xs px-1 rounded-tl">
+                <span className="absolute bottom-0 right-0 bg-primary-600 text-white text-xs px-1.5 py-0.5 rounded-tl-lg rounded-br-lg">
                   {index + 1}
                 </span>
               </div>
             ))}
+            <div className="flex-shrink-0 w-14 h-18 border-2 border-dashed border-white/30 rounded-lg flex items-center justify-center">
+              <Plus className="w-6 h-6 text-white/50" />
+            </div>
           </div>
         </div>
       )}
       
-      {/* Bottom controls */}
-      <div className="bg-black/90 px-6 py-6 safe-bottom">
-        <div className="flex items-center justify-between">
-          {/* Cancel button */}
-          <button
-            onClick={() => {
-              if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                setStream(null);
-              }
-              if (capturedImages.length > 0) {
-                setMode('multipreview');
-              } else {
-                setMode('select');
-              }
-            }}
-            className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-white"
-          >
-            <X className="w-6 h-6" />
-          </button>
-          
-          {/* Capture button */}
-          <button
-            onClick={capturePhoto}
-            disabled={!stream}
-            className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg ${
-              stream ? 'bg-white' : 'bg-white/50'
-            }`}
-          >
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
-              stream ? 'bg-primary-600' : 'bg-primary-400'
-            }`}>
-              <Camera className="w-8 h-8 text-white" />
-            </div>
-          </button>
-          
-          {/* Done button */}
-          <button
-            onClick={finishCapturing}
-            disabled={capturedImages.length === 0}
-            className={`px-4 py-2 rounded-full font-medium ${
-              capturedImages.length > 0
-                ? 'bg-green-500 text-white'
-                : 'bg-white/20 text-white/50'
-            }`}
-          >
-            Done
-          </button>
-        </div>
+      {/* Bottom controls - Always visible */}
+      <div className="flex-1 bg-black flex flex-col items-center justify-center px-6 py-4">
+        <p className="text-white/70 text-sm mb-4">
+          {capturedImages.length === 0 
+            ? 'Take your first photo' 
+            : `Tap to add page ${capturedImages.length + 1}`
+          }
+        </p>
+        
+        {/* Capture button - Always visible */}
+        <button
+          onClick={capturePhoto}
+          disabled={!stream}
+          className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
+            stream ? 'bg-white' : 'bg-white/50'
+          }`}
+        >
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
+            stream ? 'bg-primary-600' : 'bg-primary-400'
+          }`}>
+            <Camera className="w-8 h-8 text-white" />
+          </div>
+        </button>
+        
+        {capturedImages.length > 0 && (
+          <p className="text-green-400 text-sm mt-4">
+            ✓ {capturedImages.length} photo{capturedImages.length > 1 ? 's' : ''} captured • Tap "Done" when finished
+          </p>
+        )}
       </div>
       
       <canvas ref={canvasRef} className="hidden" />
