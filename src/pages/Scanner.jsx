@@ -164,6 +164,9 @@ const Scanner = () => {
   };
 
   // Camera functions - ALWAYS use back camera for document scanning
+  const [focusPoint, setFocusPoint] = useState(null);
+  const [isFocusing, setIsFocusing] = useState(false);
+  
   const startCamera = async () => {
     try {
       setError('');
@@ -184,12 +187,14 @@ const Scanner = () => {
       let newStream;
       
       try {
-        // First try: exact environment (back camera)
+        // First try: exact environment (back camera) with autofocus
         newStream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: { exact: 'environment' },
             width: { ideal: 1920 }, 
-            height: { ideal: 1080 } 
+            height: { ideal: 1080 },
+            focusMode: 'continuous',
+            autoFocus: true
           },
           audio: false
         });
@@ -201,7 +206,7 @@ const Scanner = () => {
             video: { 
               facingMode: 'environment',
               width: { ideal: 1920 }, 
-              height: { ideal: 1080 } 
+              height: { ideal: 1080 }
             },
             audio: false
           });
@@ -235,6 +240,51 @@ const Scanner = () => {
       setError('Failed to access camera. Please check permissions and try again.');
       setMode('select');
     }
+  };
+
+  // Tap to focus function
+  const handleTapToFocus = async (e) => {
+    if (!stream || !videoRef.current) return;
+    
+    const video = videoRef.current;
+    const rect = video.getBoundingClientRect();
+    
+    // Calculate tap position relative to video
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    
+    // Show focus indicator
+    setFocusPoint({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setIsFocusing(true);
+    
+    // Try to apply focus (if supported by device)
+    try {
+      const track = stream.getVideoTracks()[0];
+      const capabilities = track.getCapabilities?.();
+      
+      if (capabilities?.focusMode?.includes('manual') || capabilities?.focusMode?.includes('single-shot')) {
+        await track.applyConstraints({
+          advanced: [{
+            focusMode: 'manual',
+            focusDistance: 0.5, // Mid-range focus
+            pointsOfInterest: [{ x, y }]
+          }]
+        });
+      } else if (capabilities?.focusMode?.includes('continuous')) {
+        // Trigger refocus by toggling focus mode
+        await track.applyConstraints({
+          advanced: [{ focusMode: 'continuous' }]
+        });
+      }
+    } catch (err) {
+      console.log('Focus not supported or failed:', err.message);
+    }
+    
+    // Hide focus indicator after animation
+    setTimeout(() => {
+      setIsFocusing(false);
+      setTimeout(() => setFocusPoint(null), 300);
+    }, 1000);
   };
 
   const capturePhoto = () => {
@@ -328,7 +378,13 @@ const Scanner = () => {
 
   // Create PDF with enhanced images
   const createPDF = async () => {
-    if (capturedImages.length === 0) return;
+    if (capturedImages.length === 0) {
+      setError('No images to create PDF');
+      return;
+    }
+    
+    console.log('Creating PDF with', capturedImages.length, 'images');
+    console.log('Image types:', capturedImages.map(img => img.constructor.name));
     
     setProcessing(true);
     setProcessingStatus('Enhancing images...');
@@ -336,10 +392,12 @@ const Scanner = () => {
     setError('');
     
     try {
-      const response = await ocrAPI.createPDF(capturedImages, (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        setProgress(percentCompleted);
+      const response = await ocrAPI.createPDF(capturedImages, (percent) => {
+        setProgress(percent);
+        console.log('Upload progress:', percent);
       });
+      
+      console.log('PDF response:', response);
       
       if (response.success) {
         // Download the PDF
@@ -354,12 +412,13 @@ const Scanner = () => {
           setProcessingStatus('');
         }, 2000);
       } else {
-        setError(response.message || 'Failed to create PDF');
+        setError(response.message || response.error || 'Failed to create PDF');
         setProcessing(false);
       }
     } catch (err) {
       console.error('PDF creation error:', err);
-      setError(err.response?.data?.message || 'Failed to create PDF');
+      console.error('Error response:', err.response?.data);
+      setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to create PDF');
       setProcessing(false);
     }
   };
@@ -783,8 +842,12 @@ ${translatedText}
         </button>
       </div>
       
-      {/* Camera preview - 60% of screen */}
-      <div className="relative" style={{ height: '55vh' }}>
+      {/* Camera preview - 55% of screen with tap to focus */}
+      <div 
+        className="relative" 
+        style={{ height: '55vh' }}
+        onClick={handleTapToFocus}
+      >
         {/* Loading indicator while camera initializes */}
         {!stream && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
@@ -804,6 +867,28 @@ ${translatedText}
           style={{ display: stream ? 'block' : 'none' }}
         />
         
+        {/* Focus indicator */}
+        {focusPoint && (
+          <div 
+            className={`absolute pointer-events-none transition-all duration-300 ${
+              isFocusing ? 'scale-100 opacity-100' : 'scale-50 opacity-0'
+            }`}
+            style={{ 
+              left: focusPoint.x - 30, 
+              top: focusPoint.y - 30,
+            }}
+          >
+            <div className={`w-[60px] h-[60px] border-2 rounded-lg ${
+              isFocusing ? 'border-yellow-400' : 'border-green-400'
+            }`}>
+              <div className="absolute top-1/2 left-0 w-2 h-0.5 bg-yellow-400 -translate-y-1/2"></div>
+              <div className="absolute top-1/2 right-0 w-2 h-0.5 bg-yellow-400 -translate-y-1/2"></div>
+              <div className="absolute left-1/2 top-0 w-0.5 h-2 bg-yellow-400 -translate-x-1/2"></div>
+              <div className="absolute left-1/2 bottom-0 w-0.5 h-2 bg-yellow-400 -translate-x-1/2"></div>
+            </div>
+          </div>
+        )}
+        
         {/* Document guide frame */}
         {stream && (
           <>
@@ -816,7 +901,7 @@ ${translatedText}
             
             <div className="absolute top-4 left-0 right-0 text-center">
               <span className="bg-black/60 text-white px-3 py-1 rounded-full text-xs">
-                Position document within frame
+                Tap to focus • Position document within frame
               </span>
             </div>
           </>
@@ -850,7 +935,7 @@ ${translatedText}
       <div className="flex-1 bg-black flex flex-col items-center justify-center px-6 py-4">
         <p className="text-white/70 text-sm mb-4">
           {capturedImages.length === 0 
-            ? 'Take your first photo' 
+            ? 'Tap screen to focus, then capture' 
             : `Tap to add page ${capturedImages.length + 1}`
           }
         </p>
