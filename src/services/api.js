@@ -126,12 +126,22 @@ export const ocrAPI = {
   // Create PDF from multiple images with enhancement
   createPDF: async (images, progressCallback) => {
     const formData = new FormData();
-    images.forEach((image, index) => {
-      formData.append('images', image, `page_${index + 1}.jpg`);
-    });
+    
+    // Convert blobs to files if needed
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      if (image instanceof Blob) {
+        // If it's a blob, create a File from it
+        const file = new File([image], `page_${i + 1}.jpg`, { type: 'image/jpeg' });
+        formData.append('images', file);
+      } else {
+        formData.append('images', image, `page_${i + 1}.jpg`);
+      }
+    }
 
     const response = await api.post('/api/ocr/create-pdf', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // 2 minutes timeout for PDF creation
       onUploadProgress: (progressEvent) => {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         if (progressCallback) progressCallback(percentCompleted);
@@ -143,12 +153,21 @@ export const ocrAPI = {
   // Extract text from multiple images
   extractMultiple: async (images, progressCallback) => {
     const formData = new FormData();
-    images.forEach((image, index) => {
-      formData.append('images', image, `page_${index + 1}.jpg`);
-    });
+    
+    // Convert blobs to files if needed
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      if (image instanceof Blob) {
+        const file = new File([image], `page_${i + 1}.jpg`, { type: 'image/jpeg' });
+        formData.append('images', file);
+      } else {
+        formData.append('images', image, `page_${i + 1}.jpg`);
+      }
+    }
 
     const response = await api.post('/api/ocr/extract-multiple', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000, // 3 minutes timeout for OCR
       onUploadProgress: (progressEvent) => {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         if (progressCallback) progressCallback(percentCompleted);
