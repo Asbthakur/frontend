@@ -113,8 +113,13 @@ export const ocrAPI = {
     return response.data;
   },
 
-  translate: async (scanId, targetLanguage) => {
-    const response = await api.post('/api/ocr/translate', { scanId, targetLanguage });
+  translate: async (scanId, targetLanguage, text = null) => {
+    const response = await api.post('/api/ocr/translate', { scanId, targetLanguage, text });
+    return response.data;
+  },
+
+  summarize: async (text) => {
+    const response = await api.post('/api/ocr/summarize', { text });
     return response.data;
   },
 
