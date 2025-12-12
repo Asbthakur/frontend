@@ -40,6 +40,7 @@ const Scanner = () => {
   const [summary, setSummary] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   
   // Refs
   const videoRef = useRef(null);
@@ -50,6 +51,19 @@ const Scanner = () => {
   
   const isNative = Capacitor.isNativePlatform();
   const canScan = isAuthenticated ? (user?.canScan?.() ?? true) : true;
+
+  // Detect mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                     window.innerWidth <= 768;
+      setIsMobile(mobile);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Close export menu when clicking outside
   useEffect(() => {
@@ -503,90 +517,107 @@ ${translatedText}
         )}
       </div>
       
-      {/* Drag & Drop Zone */}
-      <div
-        ref={dropZoneRef}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
-        className={`mb-6 border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
-          isDragging 
-            ? 'border-primary-500 bg-primary-50' 
-            : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
-        }`}
-      >
-        <div className="flex flex-col items-center">
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
-            isDragging ? 'bg-primary-100' : 'bg-gray-100'
-          }`}>
-            <Upload className={`w-8 h-8 ${isDragging ? 'text-primary-600' : 'text-gray-400'}`} />
+      {/* DESKTOP VIEW - Drag & Drop, Browse, Paste */}
+      {!isMobile && (
+        <>
+          {/* Drag & Drop Zone */}
+          <div
+            ref={dropZoneRef}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            className={`mb-6 border-2 border-dashed rounded-2xl p-10 text-center transition-all ${
+              isDragging 
+                ? 'border-primary-500 bg-primary-50' 
+                : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
+            }`}
+          >
+            <div className="flex flex-col items-center">
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${
+                isDragging ? 'bg-primary-100' : 'bg-gray-100'
+              }`}>
+                <Upload className={`w-10 h-10 ${isDragging ? 'text-primary-600' : 'text-gray-400'}`} />
+              </div>
+              <p className="font-semibold text-xl mb-2">
+                {isDragging ? 'Drop your image here!' : 'Drag & Drop your image here'}
+              </p>
+              <p className="text-gray-500 text-sm mb-6">Supports: JPG, PNG, WEBP, TIFF (Max 10MB)</p>
+              
+              <div className="flex flex-wrap items-center justify-center gap-4">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-6 py-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors flex items-center gap-2"
+                >
+                  <Upload className="w-5 h-5" />
+                  Browse Files
+                </button>
+                <button
+                  onClick={handlePasteButton}
+                  className="px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors flex items-center gap-2"
+                >
+                  <Clipboard className="w-5 h-5" />
+                  Paste Image
+                </button>
+              </div>
+              <p className="text-gray-400 text-sm mt-4">or press Ctrl+V / Cmd+V to paste from clipboard</p>
+            </div>
           </div>
-          <p className="font-semibold text-lg mb-1">
-            {isDragging ? 'Drop your image here!' : 'Drag & Drop your image here'}
-          </p>
-          <p className="text-gray-500 text-sm mb-4">Supports: JPG, PNG, WEBP, TIFF (Max 10MB)</p>
-          
-          <div className="flex flex-wrap items-center justify-center gap-3">
+        </>
+      )}
+      
+      {/* MOBILE VIEW - Camera + Upload buttons */}
+      {isMobile && (
+        <>
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            {/* Camera Option */}
+            <button
+              onClick={startCamera}
+              disabled={!canScan}
+              className="card hover:shadow-xl transition-all group p-6"
+            >
+              <div className="flex flex-col items-center text-center space-y-3">
+                <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Camera className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg">Camera</h3>
+                  <p className="text-gray-600 text-xs">Take a photo</p>
+                </div>
+              </div>
+            </button>
+            
+            {/* Upload Option */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors"
+              disabled={!canScan}
+              className="card hover:shadow-xl transition-all group p-6"
             >
-              Browse Files
+              <div className="flex flex-col items-center text-center space-y-3">
+                <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Upload className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg">Gallery</h3>
+                  <p className="text-gray-600 text-xs">Choose image</p>
+                </div>
+              </div>
             </button>
-            <button
-              onClick={handlePasteButton}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors flex items-center gap-2"
-            >
-              <Clipboard className="w-4 h-4" />
-              Paste Image
-            </button>
           </div>
-          <p className="text-gray-400 text-xs mt-3">or press Ctrl+V / Cmd+V to paste</p>
-        </div>
-      </div>
-      
-      {/* Or separator */}
-      <div className="flex items-center gap-4 mb-6">
-        <div className="flex-1 h-px bg-gray-200"></div>
-        <span className="text-gray-400 text-sm font-medium">OR</span>
-        <div className="flex-1 h-px bg-gray-200"></div>
-      </div>
-      
-      {/* Camera and Upload buttons */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <button
-          onClick={startCamera}
-          disabled={!canScan}
-          className="card hover:shadow-xl transition-all group p-8"
-        >
-          <div className="flex flex-col items-center text-center space-y-4">
-            <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Camera className="w-10 h-10 text-white" />
-            </div>
-            <div>
-              <h3 className="font-bold text-xl mb-2">Use Camera</h3>
-              <p className="text-gray-600 text-sm">Capture documents using your camera</p>
-            </div>
+          
+          {/* Drag & Drop hint for mobile (smaller) */}
+          <div
+            ref={dropZoneRef}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center"
+          >
+            <p className="text-gray-500 text-sm">Or drag & drop an image here</p>
           </div>
-        </button>
-        
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={!canScan}
-          className="card hover:shadow-xl transition-all group p-8"
-        >
-          <div className="flex flex-col items-center text-center space-y-4">
-            <div className="w-20 h-20 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Upload className="w-10 h-10 text-white" />
-            </div>
-            <div>
-              <h3 className="font-bold text-xl mb-2">Upload Image</h3>
-              <p className="text-gray-600 text-sm">Choose an image from your device</p>
-            </div>
-          </div>
-        </button>
-      </div>
+        </>
+      )}
       
       <input
         ref={fileInputRef}
