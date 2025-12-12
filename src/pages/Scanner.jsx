@@ -242,19 +242,39 @@ const Scanner = () => {
     }
   };
 
-  // Tap to focus function
-  const handleTapToFocus = async (e) => {
+  // Tap to focus function - works with both touch and click
+  const handleTapToFocus = (e) => {
     if (!stream || !videoRef.current) return;
+    
+    // Prevent default to avoid double-firing
+    e.preventDefault();
     
     const video = videoRef.current;
     const rect = video.getBoundingClientRect();
     
+    // Get coordinates - handle both touch and mouse events
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if (e.changedTouches && e.changedTouches.length > 0) {
+      clientX = e.changedTouches[0].clientX;
+      clientY = e.changedTouches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
     // Calculate tap position relative to video
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
+    
+    // Calculate position for focus indicator (relative to container)
+    const indicatorX = clientX - rect.left;
+    const indicatorY = clientY - rect.top;
     
     // Show focus indicator
-    setFocusPoint({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setFocusPoint({ x: indicatorX, y: indicatorY });
     setIsFocusing(true);
     
     // Try to apply focus (if supported by device)
@@ -263,18 +283,17 @@ const Scanner = () => {
       const capabilities = track.getCapabilities?.();
       
       if (capabilities?.focusMode?.includes('manual') || capabilities?.focusMode?.includes('single-shot')) {
-        await track.applyConstraints({
+        track.applyConstraints({
           advanced: [{
             focusMode: 'manual',
-            focusDistance: 0.5, // Mid-range focus
             pointsOfInterest: [{ x, y }]
           }]
-        });
+        }).catch(err => console.log('Focus constraint error:', err));
       } else if (capabilities?.focusMode?.includes('continuous')) {
         // Trigger refocus by toggling focus mode
-        await track.applyConstraints({
+        track.applyConstraints({
           advanced: [{ focusMode: 'continuous' }]
-        });
+        }).catch(err => console.log('Focus constraint error:', err));
       }
     } catch (err) {
       console.log('Focus not supported or failed:', err.message);
@@ -284,7 +303,7 @@ const Scanner = () => {
     setTimeout(() => {
       setIsFocusing(false);
       setTimeout(() => setFocusPoint(null), 300);
-    }, 1000);
+    }, 800);
   };
 
   const capturePhoto = () => {
@@ -369,10 +388,15 @@ const Scanner = () => {
   };
 
   const addMoreImages = () => {
+    console.log('Add more images clicked, isMobile:', isMobile);
     if (isMobile) {
       startCamera();
     } else {
-      fileInputRef.current?.click();
+      // For desktop, trigger file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''; // Reset to allow same file
+        fileInputRef.current.click();
+      }
     }
   };
 
@@ -384,27 +408,53 @@ const Scanner = () => {
     }
     
     console.log('Creating PDF with', capturedImages.length, 'images');
-    console.log('Image types:', capturedImages.map(img => img.constructor.name));
     
     setProcessing(true);
-    setProcessingStatus('Enhancing images...');
+    setProcessingStatus('Preparing images...');
     setProgress(0);
     setError('');
     
     try {
-      const response = await ocrAPI.createPDF(capturedImages, (percent) => {
-        setProgress(percent);
-        console.log('Upload progress:', percent);
+      // Compress images before sending to reduce size
+      const compressedImages = [];
+      for (let i = 0; i < capturedImages.length; i++) {
+        setProcessingStatus(`Compressing image ${i + 1}/${capturedImages.length}...`);
+        setProgress(Math.round((i / capturedImages.length) * 30));
+        
+        const img = capturedImages[i];
+        
+        // If blob is too large, compress it
+        if (img.size > 2 * 1024 * 1024) {
+          // Compress using canvas
+          const compressed = await compressImage(img, 0.7);
+          compressedImages.push(compressed);
+        } else {
+          compressedImages.push(img);
+        }
+      }
+      
+      setProcessingStatus('Creating PDF...');
+      setProgress(40);
+      
+      const response = await ocrAPI.createPDF(compressedImages, (percent) => {
+        // Map 0-100 to 40-100 range
+        const mappedProgress = 40 + Math.round(percent * 0.6);
+        setProgress(mappedProgress);
       });
       
-      console.log('PDF response:', response);
+      console.log('PDF response received');
       
-      if (response.success) {
+      if (response.success && response.pdf) {
+        setProcessingStatus('Downloading PDF...');
+        setProgress(100);
+        
         // Download the PDF
         const link = document.createElement('a');
         link.href = `data:application/pdf;base64,${response.pdf}`;
         link.download = `scan_${Date.now()}.pdf`;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
         
         setProcessingStatus('PDF created successfully!');
         setTimeout(() => {
@@ -417,10 +467,54 @@ const Scanner = () => {
       }
     } catch (err) {
       console.error('PDF creation error:', err);
-      console.error('Error response:', err.response?.data);
-      setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to create PDF');
+      const errorMsg = err.response?.data?.message || 
+                       err.response?.data?.error || 
+                       err.message || 
+                       'Network error - please try again';
+      setError(errorMsg);
       setProcessing(false);
+      setProcessingStatus('');
     }
+  };
+
+  // Helper function to compress image
+  const compressImage = (blob, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        
+        // Limit max dimension to 1500px
+        let { width, height } = img;
+        const maxDim = 1500;
+        
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = (height / width) * maxDim;
+            width = maxDim;
+          } else {
+            width = (width / height) * maxDim;
+            height = maxDim;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob(
+          (compressedBlob) => {
+            resolve(compressedBlob || blob);
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      img.onerror = () => resolve(blob);
+      img.src = URL.createObjectURL(blob);
+    });
   };
 
   // Extract text from all images
@@ -846,6 +940,7 @@ ${translatedText}
       <div 
         className="relative" 
         style={{ height: '55vh' }}
+        onTouchStart={handleTapToFocus}
         onClick={handleTapToFocus}
       >
         {/* Loading indicator while camera initializes */}
@@ -1119,6 +1214,16 @@ ${translatedText}
           </div>
         </div>
       )}
+      
+      {/* Hidden file input for Add More on desktop */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFileUpload}
+        className="hidden"
+      />
     </div>
   );
 
