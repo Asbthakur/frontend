@@ -207,10 +207,28 @@ const Scanner = () => {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      });
+      
+      // Request camera with specific facing mode
+      const constraints = {
+        video: { 
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1920 }, 
+          height: { ideal: 1080 } 
+        }
+      };
+      
+      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
       setStream(newStream);
+      
+      // Check actual camera being used
+      const videoTrack = newStream.getVideoTracks()[0];
+      const settings = videoTrack.getSettings();
+      
+      // Update facingMode based on actual camera (some devices report this)
+      if (settings.facingMode) {
+        setFacingMode(settings.facingMode);
+      }
+      
       if (videoRef.current) {
         videoRef.current.srcObject = newStream;
       }
@@ -221,9 +239,50 @@ const Scanner = () => {
     }
   };
 
-  const switchCamera = () => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
-    startCamera();
+  const switchCamera = async () => {
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(newFacingMode);
+    
+    // Stop current stream
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+    
+    try {
+      const constraints = {
+        video: { 
+          facingMode: { exact: newFacingMode },
+          width: { ideal: 1920 }, 
+          height: { ideal: 1080 } 
+        }
+      };
+      
+      const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      setStream(newStream);
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = newStream;
+      }
+    } catch (err) {
+      // If exact facingMode fails, try with ideal
+      try {
+        const constraints = {
+          video: { 
+            facingMode: { ideal: newFacingMode },
+            width: { ideal: 1920 }, 
+            height: { ideal: 1080 } 
+          }
+        };
+        const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+        setStream(newStream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = newStream;
+        }
+      } catch (err2) {
+        console.error('Switch camera error:', err2);
+        setError('Could not switch camera');
+      }
+    }
   };
 
   const capturePhoto = () => {
@@ -234,14 +293,11 @@ const Scanner = () => {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     
-    // Only mirror for front camera (selfie mode)
-    // Back camera (environment) should NOT be mirrored
-    if (facingMode === 'user') {
-      ctx.translate(canvas.width, 0);
-      ctx.scale(-1, 1);
-    }
+    // NEVER mirror for back camera (environment)
+    // Only mirror for front camera (user) - but even then, capture without mirror
+    // The preview is mirrored for selfie view, but captured image should be normal
     
-    // Draw the image normally (no flip for back camera)
+    // Draw the image WITHOUT any mirroring - let the camera provide correct orientation
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
     canvas.toBlob((blob) => {
@@ -252,6 +308,7 @@ const Scanner = () => {
         setStream(null);
       }
     }, 'image/jpeg', 0.95);
+  };
   };
 
   const handleFileUpload = (e) => {
@@ -647,8 +704,8 @@ ${translatedText}
             autoPlay
             playsInline
             className="w-full h-full object-cover"
-            style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
           />
+          {/* No transform/mirror - show camera feed as-is */}
         </div>
         
         <div className="mt-6 flex items-center justify-center space-x-4">
