@@ -219,11 +219,17 @@ const Scanner = () => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
+    
+    // Only mirror for front camera (selfie mode)
+    // Back camera (environment) should NOT be mirrored
     if (facingMode === 'user') {
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
     }
+    
+    // Draw the image normally (no flip for back camera)
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
     canvas.toBlob((blob) => {
       setCapturedImage(blob);
       setMode('preview');
@@ -807,16 +813,62 @@ ${translatedText}
             className="flex-1 p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <option value="">Select language...</option>
-            <option value="hi">Hindi</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="zh">Chinese</option>
-            <option value="ja">Japanese</option>
-            <option value="ar">Arabic</option>
-            <option value="pt">Portuguese</option>
-            <option value="ru">Russian</option>
-            <option value="ko">Korean</option>
+            
+            {/* Indian Languages */}
+            <optgroup label="Indian Languages">
+              <option value="hi">Hindi (हिन्दी)</option>
+              <option value="bn">Bengali (বাংলা)</option>
+              <option value="te">Telugu (తెలుగు)</option>
+              <option value="mr">Marathi (मराठी)</option>
+              <option value="ta">Tamil (தமிழ்)</option>
+              <option value="gu">Gujarati (ગુજરાતી)</option>
+              <option value="kn">Kannada (ಕನ್ನಡ)</option>
+              <option value="ml">Malayalam (മലയാളം)</option>
+              <option value="pa">Punjabi (ਪੰਜਾਬੀ)</option>
+              <option value="or">Odia (ଓଡ଼ିଆ)</option>
+              <option value="ur">Urdu (اردو)</option>
+            </optgroup>
+            
+            {/* European Languages */}
+            <optgroup label="European Languages">
+              <option value="en">English</option>
+              <option value="es">Spanish (Español)</option>
+              <option value="fr">French (Français)</option>
+              <option value="de">German (Deutsch)</option>
+              <option value="it">Italian (Italiano)</option>
+              <option value="pt">Portuguese (Português)</option>
+              <option value="nl">Dutch (Nederlands)</option>
+              <option value="pl">Polish (Polski)</option>
+              <option value="ru">Russian (Русский)</option>
+              <option value="uk">Ukrainian (Українська)</option>
+              <option value="el">Greek (Ελληνικά)</option>
+            </optgroup>
+            
+            {/* Asian Languages */}
+            <optgroup label="Asian Languages">
+              <option value="zh">Chinese (中文)</option>
+              <option value="ja">Japanese (日本語)</option>
+              <option value="ko">Korean (한국어)</option>
+              <option value="th">Thai (ไทย)</option>
+              <option value="vi">Vietnamese (Tiếng Việt)</option>
+              <option value="id">Indonesian (Bahasa Indonesia)</option>
+              <option value="ms">Malay (Bahasa Melayu)</option>
+              <option value="tl">Filipino (Tagalog)</option>
+            </optgroup>
+            
+            {/* Middle Eastern Languages */}
+            <optgroup label="Middle Eastern Languages">
+              <option value="ar">Arabic (العربية)</option>
+              <option value="fa">Persian (فارسی)</option>
+              <option value="he">Hebrew (עברית)</option>
+              <option value="tr">Turkish (Türkçe)</option>
+            </optgroup>
+            
+            {/* African Languages */}
+            <optgroup label="African Languages">
+              <option value="sw">Swahili (Kiswahili)</option>
+              <option value="am">Amharic (አማርኛ)</option>
+            </optgroup>
           </select>
           
           <button
