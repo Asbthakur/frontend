@@ -1409,7 +1409,9 @@ ${translatedText}
     setError('');
     
     try {
-      const response = await ocrAPI.translate(result._id, selectedLanguage, result.ocr.text);
+      // Pass text directly, scanId only if it exists and is valid
+      const scanId = result?.scanId || result?._id || null;
+      const response = await ocrAPI.translate(result.ocr.text, selectedLanguage, scanId);
       
       if (response.success) {
         setResult(prev => ({
