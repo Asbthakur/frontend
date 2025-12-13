@@ -750,15 +750,23 @@ const Scanner = () => {
     setError('');
     setMode('processing');
     
+    // Smooth progress animation while waiting for API
+    let fakeProgress = 0;
+    const progressInterval = setInterval(() => {
+      fakeProgress += Math.random() * 12;
+      if (fakeProgress > 90) fakeProgress = 90;
+      setProgress(Math.round(fakeProgress));
+    }, 200);
+    
     try {
       let response;
       
       if (detectTables && capturedImages.length === 1) {
-        response = await ocrAPI.extractWithTables(capturedImages[0], (percent) => {
-          setProgress(percent);
-        });
+        response = await ocrAPI.extractWithTables(capturedImages[0]);
         
         if (response.success) {
+          clearInterval(progressInterval);
+          setProgress(100);
           setResult({
             ocr: {
               text: response.text,
@@ -772,11 +780,11 @@ const Scanner = () => {
           throw new Error(response.error || 'Processing failed');
         }
       } else {
-        response = await ocrAPI.extractMultiple(capturedImages, (percent) => {
-          setProgress(percent);
-        });
+        response = await ocrAPI.extractMultiple(capturedImages);
         
         if (response.success) {
+          clearInterval(progressInterval);
+          setProgress(100);
           setResult({
             ocr: {
               text: response.text,
@@ -796,6 +804,7 @@ const Scanner = () => {
       setError(err.message || err.response?.data?.message || 'Failed to extract text');
       setMode('multipreview');
     } finally {
+      clearInterval(progressInterval);
       setProcessing(false);
       setProgress(0);
       setProcessingStatus('');
