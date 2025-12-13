@@ -30,15 +30,17 @@ import {
   Type,
   Highlighter,
   Palette,
+  Table,
+  FileDown,
 } from 'lucide-react';
 
 const Scanner = () => {
   const { user, isAuthenticated } = useAuth();
   
   // State management
-  const [mode, setMode] = useState('select'); // 'select', 'camera', 'preview', 'multipreview', 'editor', 'processing', 'result'
+  const [mode, setMode] = useState('select');
   const [stream, setStream] = useState(null);
-  const [capturedImages, setCapturedImages] = useState([]); // Array of captured image blobs
+  const [capturedImages, setCapturedImages] = useState([]);
   const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
   const [uploadedFile, setUploadedFile] = useState(null);
   const [processing, setProcessing] = useState(false);
@@ -64,9 +66,9 @@ const Scanner = () => {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   
   // Text & Highlight State
-  const [editorTool, setEditorTool] = useState(null); // 'crop', 'text', 'highlight'
-  const [textAnnotations, setTextAnnotations] = useState([]); // Array of {id, x, y, text, color, fontSize}
-  const [highlights, setHighlights] = useState([]); // Array of {id, x, y, width, height, color}
+  const [editorTool, setEditorTool] = useState(null);
+  const [textAnnotations, setTextAnnotations] = useState([]);
+  const [highlights, setHighlights] = useState([]);
   const [activeTextId, setActiveTextId] = useState(null);
   const [isAddingText, setIsAddingText] = useState(false);
   const [newTextPosition, setNewTextPosition] = useState(null);
@@ -88,6 +90,10 @@ const Scanner = () => {
   
   const isNative = Capacitor.isNativePlatform();
   const canScan = isAuthenticated ? (user?.canScan?.() ?? true) : true;
+
+  // Focus state for camera
+  const [focusPoint, setFocusPoint] = useState(null);
+  const [isFocusing, setIsFocusing] = useState(false);
 
   // Detect mobile device
   useEffect(() => {
@@ -133,7 +139,6 @@ const Scanner = () => {
               return;
             }
             setError('');
-            // Add to captured images array
             const blob = file;
             setCapturedImages(prev => [...prev, blob]);
             setCurrentPreviewIndex(capturedImages.length);
@@ -198,31 +203,23 @@ const Scanner = () => {
     setMode('multipreview');
   };
 
-  // Camera functions - ALWAYS use back camera for document scanning
-  const [focusPoint, setFocusPoint] = useState(null);
-  const [isFocusing, setIsFocusing] = useState(false);
-  
+  // Camera functions
   const startCamera = async () => {
     try {
       setError('');
       
-      // Stop any existing stream first
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         setStream(null);
       }
       
-      // Set camera mode first so UI shows
       setMode('camera');
       
-      // Small delay to ensure video element is mounted
       await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Try to get back camera first
       let newStream;
       
       try {
-        // First try: exact environment (back camera) with autofocus
         newStream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: { exact: 'environment' },
@@ -236,7 +233,6 @@ const Scanner = () => {
       } catch (err) {
         console.log('Back camera not available, trying any camera...');
         try {
-          // Second try: prefer environment but accept any
           newStream = await navigator.mediaDevices.getUserMedia({
             video: { 
               facingMode: 'environment',
@@ -247,7 +243,6 @@ const Scanner = () => {
           });
         } catch (err2) {
           console.log('Environment mode failed, trying default camera...');
-          // Third try: any available camera
           newStream = await navigator.mediaDevices.getUserMedia({
             video: {
               width: { ideal: 1920 }, 
@@ -260,11 +255,8 @@ const Scanner = () => {
       
       setStream(newStream);
       
-      // Wait for video element and set stream
       if (videoRef.current) {
         videoRef.current.srcObject = newStream;
-        
-        // Wait for video to be ready
         videoRef.current.onloadedmetadata = () => {
           videoRef.current.play().catch(e => console.log('Video play error:', e));
         };
@@ -277,42 +269,16 @@ const Scanner = () => {
     }
   };
 
-  // Tap to focus function - works with both touch and click
-  const handleTapToFocus = (e) => {
+  const handleTapToFocus = async (e) => {
     if (!stream || !videoRef.current) return;
     
-    // Prevent default to avoid double-firing
-    e.preventDefault();
+    const rect = videoRef.current.getBoundingClientRect();
+    const x = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
+    const y = (e.clientY || e.touches?.[0]?.clientY) - rect.top;
     
-    const video = videoRef.current;
-    const rect = video.getBoundingClientRect();
-    
-    // Get coordinates - handle both touch and mouse events
-    let clientX, clientY;
-    if (e.touches && e.touches.length > 0) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
-    } else if (e.changedTouches && e.changedTouches.length > 0) {
-      clientX = e.changedTouches[0].clientX;
-      clientY = e.changedTouches[0].clientY;
-    } else {
-      clientX = e.clientX;
-      clientY = e.clientY;
-    }
-    
-    // Calculate tap position relative to video
-    const x = (clientX - rect.left) / rect.width;
-    const y = (clientY - rect.top) / rect.height;
-    
-    // Calculate position for focus indicator (relative to container)
-    const indicatorX = clientX - rect.left;
-    const indicatorY = clientY - rect.top;
-    
-    // Show focus indicator
-    setFocusPoint({ x: indicatorX, y: indicatorY });
+    setFocusPoint({ x, y });
     setIsFocusing(true);
     
-    // Try to apply focus (if supported by device)
     try {
       const track = stream.getVideoTracks()[0];
       const capabilities = track.getCapabilities?.();
@@ -325,7 +291,6 @@ const Scanner = () => {
           }]
         }).catch(err => console.log('Focus constraint error:', err));
       } else if (capabilities?.focusMode?.includes('continuous')) {
-        // Trigger refocus by toggling focus mode
         track.applyConstraints({
           advanced: [{ focusMode: 'continuous' }]
         }).catch(err => console.log('Focus constraint error:', err));
@@ -334,7 +299,6 @@ const Scanner = () => {
       console.log('Focus not supported or failed:', err.message);
     }
     
-    // Hide focus indicator after animation
     setTimeout(() => {
       setIsFocusing(false);
       setTimeout(() => setFocusPoint(null), 300);
@@ -354,7 +318,6 @@ const Scanner = () => {
     canvas.toBlob((blob) => {
       setCapturedImages(prev => [...prev, blob]);
       setCurrentPreviewIndex(capturedImages.length);
-      // Stay in camera mode for multi-capture
     }, 'image/jpeg', 0.95);
   };
 
@@ -423,92 +386,13 @@ const Scanner = () => {
   };
 
   const addMoreImages = () => {
-    console.log('Add more images clicked, isMobile:', isMobile);
     if (isMobile) {
       startCamera();
     } else {
-      // For desktop, trigger file input
       if (fileInputRef.current) {
-        fileInputRef.current.value = ''; // Reset to allow same file
+        fileInputRef.current.value = '';
         fileInputRef.current.click();
       }
-    }
-  };
-
-  // Create PDF with enhanced images
-  const createPDF = async () => {
-    if (capturedImages.length === 0) {
-      setError('No images to create PDF');
-      return;
-    }
-    
-    console.log('Creating PDF with', capturedImages.length, 'images');
-    
-    setProcessing(true);
-    setProcessingStatus('Preparing images...');
-    setProgress(0);
-    setError('');
-    
-    try {
-      // Compress images before sending to reduce size
-      const compressedImages = [];
-      for (let i = 0; i < capturedImages.length; i++) {
-        setProcessingStatus(`Compressing image ${i + 1}/${capturedImages.length}...`);
-        setProgress(Math.round((i / capturedImages.length) * 30));
-        
-        const img = capturedImages[i];
-        
-        // If blob is too large, compress it
-        if (img.size > 2 * 1024 * 1024) {
-          // Compress using canvas
-          const compressed = await compressImage(img, 0.7);
-          compressedImages.push(compressed);
-        } else {
-          compressedImages.push(img);
-        }
-      }
-      
-      setProcessingStatus('Creating PDF...');
-      setProgress(40);
-      
-      const response = await ocrAPI.createPDF(compressedImages, (percent) => {
-        // Map 0-100 to 40-100 range
-        const mappedProgress = 40 + Math.round(percent * 0.6);
-        setProgress(mappedProgress);
-      });
-      
-      console.log('PDF response received');
-      
-      if (response.success && response.pdf) {
-        setProcessingStatus('Downloading PDF...');
-        setProgress(100);
-        
-        // Download the PDF
-        const link = document.createElement('a');
-        link.href = `data:application/pdf;base64,${response.pdf}`;
-        link.download = `scan_${Date.now()}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        setProcessingStatus('PDF created successfully!');
-        setTimeout(() => {
-          setProcessing(false);
-          setProcessingStatus('');
-        }, 2000);
-      } else {
-        setError(response.message || response.error || 'Failed to create PDF');
-        setProcessing(false);
-      }
-    } catch (err) {
-      console.error('PDF creation error:', err);
-      const errorMsg = err.response?.data?.message || 
-                       err.response?.data?.error || 
-                       err.message || 
-                       'Network error - please try again';
-      setError(errorMsg);
-      setProcessing(false);
-      setProcessingStatus('');
     }
   };
 
@@ -518,8 +402,6 @@ const Scanner = () => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        
-        // Limit max dimension to 1500px
         let { width, height } = img;
         const maxDim = 1500;
         
@@ -552,9 +434,76 @@ const Scanner = () => {
     });
   };
 
+  // Create PDF with enhanced images
+  const createPDF = async () => {
+    if (capturedImages.length === 0) {
+      setError('No images to create PDF');
+      return;
+    }
+    
+    setProcessing(true);
+    setProcessingStatus('Preparing images...');
+    setProgress(0);
+    setError('');
+    
+    try {
+      const compressedImages = [];
+      for (let i = 0; i < capturedImages.length; i++) {
+        setProcessingStatus(`Compressing image ${i + 1}/${capturedImages.length}...`);
+        setProgress(Math.round((i / capturedImages.length) * 30));
+        
+        const img = capturedImages[i];
+        
+        if (img.size > 2 * 1024 * 1024) {
+          const compressed = await compressImage(img, 0.7);
+          compressedImages.push(compressed);
+        } else {
+          compressedImages.push(img);
+        }
+      }
+      
+      setProcessingStatus('Creating PDF...');
+      setProgress(40);
+      
+      const response = await ocrAPI.createPDF(compressedImages, (percent) => {
+        const mappedProgress = 40 + Math.round(percent * 0.6);
+        setProgress(mappedProgress);
+      });
+      
+      if (response.success && response.pdf) {
+        setProcessingStatus('Downloading PDF...');
+        setProgress(100);
+        
+        const link = document.createElement('a');
+        link.href = `data:application/pdf;base64,${response.pdf}`;
+        link.download = `scan_${Date.now()}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        setProcessingStatus('PDF created successfully!');
+        setTimeout(() => {
+          setProcessing(false);
+          setProcessingStatus('');
+        }, 2000);
+      } else {
+        setError(response.message || response.error || 'Failed to create PDF');
+        setProcessing(false);
+      }
+    } catch (err) {
+      console.error('PDF creation error:', err);
+      const errorMsg = err.response?.data?.message || 
+                       err.response?.data?.error || 
+                       err.message || 
+                       'Network error - please try again';
+      setError(errorMsg);
+      setProcessing(false);
+      setProcessingStatus('');
+    }
+  };
+
   // ==================== IMAGE EDITOR FUNCTIONS ====================
   
-  // Open image editor for a specific image
   const openEditor = (index) => {
     const blob = capturedImages[index];
     const url = URL.createObjectURL(blob);
@@ -563,7 +512,7 @@ const Scanner = () => {
     setRotation(0);
     setCropMode(false);
     setEditorTool(null);
-    setCropArea({ x: 10, y: 10, width: 80, height: 80 }); // Percentage values
+    setCropArea({ x: 10, y: 10, width: 80, height: 80 });
     setTextAnnotations([]);
     setHighlights([]);
     setActiveTextId(null);
@@ -573,7 +522,6 @@ const Scanner = () => {
     setMode('editor');
   };
 
-  // Close editor without saving
   const closeEditor = () => {
     if (editingImage) {
       URL.revokeObjectURL(editingImage);
@@ -590,62 +538,42 @@ const Scanner = () => {
     setMode('multipreview');
   };
 
-  // Rotate image
   const rotateImage = (degrees) => {
     setRotation((prev) => (prev + degrees + 360) % 360);
   };
 
-  // Toggle crop mode
   const toggleCropMode = () => {
     setEditorTool(editorTool === 'crop' ? null : 'crop');
-    setCropMode(editorTool !== 'crop');
+    setActiveTextId(null);
     setIsAddingText(false);
-    setIsDrawingHighlight(false);
   };
 
-  // Toggle text mode
   const toggleTextMode = () => {
     setEditorTool(editorTool === 'text' ? null : 'text');
-    setCropMode(false);
-    setIsAddingText(false);
-    setIsDrawingHighlight(false);
     setActiveTextId(null);
+    setIsAddingText(false);
   };
 
-  // Toggle highlight mode
   const toggleHighlightMode = () => {
     setEditorTool(editorTool === 'highlight' ? null : 'highlight');
-    setCropMode(false);
+    setActiveTextId(null);
     setIsAddingText(false);
-    setIsDrawingHighlight(false);
   };
 
-  // Handle tap on image to add text
-  const handleImageTapForText = (e) => {
-    if (editorTool !== 'text' || isAddingText || draggingTextId) return;
+  const handleEditorClick = (e) => {
+    if (!editorContainerRef.current) return;
     
-    const container = editorContainerRef.current;
-    const img = container?.querySelector('img');
-    if (!img) return;
+    const rect = editorContainerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
     
-    const rect = img.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    // Check if tap is within image bounds
-    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
-      return;
+    if (editorTool === 'text' && !isAddingText) {
+      setNewTextPosition({ x, y });
+      setIsAddingText(true);
+      setNewTextValue('');
     }
-    
-    const x = ((clientX - rect.left) / rect.width) * 100;
-    const y = ((clientY - rect.top) / rect.height) * 100;
-    
-    setNewTextPosition({ x, y });
-    setIsAddingText(true);
-    setNewTextValue('');
   };
 
-  // Add text annotation
   const addTextAnnotation = () => {
     if (!newTextValue.trim() || !newTextPosition) return;
     
@@ -655,330 +583,65 @@ const Scanner = () => {
       y: newTextPosition.y,
       text: newTextValue,
       color: textColor,
-      fontSize: 18
+      fontSize: 16
     };
     
     setTextAnnotations(prev => [...prev, newText]);
-    setIsAddingText(false);
     setNewTextPosition(null);
     setNewTextValue('');
-  };
-
-  // Cancel adding text
-  const cancelAddText = () => {
     setIsAddingText(false);
-    setNewTextPosition(null);
-    setNewTextValue('');
   };
 
-  // Delete text annotation
-  const deleteTextAnnotation = (id) => {
-    setTextAnnotations(prev => prev.filter(t => t.id !== id));
-    setActiveTextId(null);
-  };
-
-  // Start dragging text
-  const handleTextDragStart = (e, textId) => {
-    if (editorTool !== 'text') return;
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    const text = textAnnotations.find(t => t.id === textId);
-    if (!text) return;
-    
-    setDraggingTextId(textId);
-    setActiveTextId(textId);
-    setTextDragStart({
-      mouseX: clientX,
-      mouseY: clientY,
-      textX: text.x,
-      textY: text.y
-    });
-  };
-
-  // Handle text dragging
-  const handleTextDrag = useCallback((e) => {
-    if (!draggingTextId || !textDragStart || !editorContainerRef.current) return;
-    
-    const container = editorContainerRef.current;
-    const img = container?.querySelector('img');
-    if (!img) return;
-    
-    const rect = img.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    const deltaX = ((clientX - textDragStart.mouseX) / rect.width) * 100;
-    const deltaY = ((clientY - textDragStart.mouseY) / rect.height) * 100;
-    
-    const newX = Math.max(0, Math.min(95, textDragStart.textX + deltaX));
-    const newY = Math.max(0, Math.min(95, textDragStart.textY + deltaY));
-    
-    setTextAnnotations(prev => prev.map(t => 
-      t.id === draggingTextId ? { ...t, x: newX, y: newY } : t
-    ));
-  }, [draggingTextId, textDragStart]);
-
-  // End text dragging
-  const handleTextDragEnd = useCallback(() => {
-    setDraggingTextId(null);
-    setTextDragStart(null);
-  }, []);
-
-  // Add event listeners for text dragging
-  useEffect(() => {
-    if (draggingTextId) {
-      window.addEventListener('mousemove', handleTextDrag);
-      window.addEventListener('mouseup', handleTextDragEnd);
-      window.addEventListener('touchmove', handleTextDrag);
-      window.addEventListener('touchend', handleTextDragEnd);
-    }
-    
-    return () => {
-      window.removeEventListener('mousemove', handleTextDrag);
-      window.removeEventListener('mouseup', handleTextDragEnd);
-      window.removeEventListener('touchmove', handleTextDrag);
-      window.removeEventListener('touchend', handleTextDragEnd);
-    };
-  }, [draggingTextId, handleTextDrag, handleTextDragEnd]);
-
-  // Handle highlight drawing start
   const handleHighlightStart = (e) => {
-    if (editorTool !== 'highlight') return;
+    if (editorTool !== 'highlight' || !editorContainerRef.current) return;
     
-    const container = editorContainerRef.current;
-    const img = container?.querySelector('img');
-    if (!img) return;
+    const rect = editorContainerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
     
-    const rect = img.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    // Check if within image bounds
-    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
-      return;
-    }
-    
-    const x = ((clientX - rect.left) / rect.width) * 100;
-    const y = ((clientY - rect.top) / rect.height) * 100;
-    
-    setHighlightStart({ x, y });
     setIsDrawingHighlight(true);
+    setHighlightStart({ x, y });
     
-    // Add preview highlight
     setHighlights(prev => [...prev, {
       id: 'preview',
-      x: x,
-      y: y,
+      x,
+      y,
       width: 0,
       height: 0,
       color: highlightColor
     }]);
   };
 
-  // Handle highlight drawing
-  const handleHighlightDraw = useCallback((e) => {
+  const handleHighlightMove = (e) => {
     if (!isDrawingHighlight || !highlightStart || !editorContainerRef.current) return;
     
-    const container = editorContainerRef.current;
-    const img = container?.querySelector('img');
-    if (!img) return;
+    const rect = editorContainerRef.current.getBoundingClientRect();
+    const currentX = ((e.clientX - rect.left) / rect.width) * 100;
+    const currentY = ((e.clientY - rect.top) / rect.height) * 100;
     
-    const rect = img.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    // Clamp to image bounds
-    const clampedX = Math.max(rect.left, Math.min(rect.right, clientX));
-    const clampedY = Math.max(rect.top, Math.min(rect.bottom, clientY));
-    
-    const x = ((clampedX - rect.left) / rect.width) * 100;
-    const y = ((clampedY - rect.top) / rect.height) * 100;
-    
-    // Update preview highlight
     const newHighlight = {
       id: 'preview',
-      x: Math.min(highlightStart.x, x),
-      y: Math.min(highlightStart.y, y),
-      width: Math.abs(x - highlightStart.x),
-      height: Math.abs(y - highlightStart.y),
+      x: Math.min(highlightStart.x, currentX),
+      y: Math.min(highlightStart.y, currentY),
+      width: Math.abs(currentX - highlightStart.x),
+      height: Math.abs(currentY - highlightStart.y),
       color: highlightColor
     };
     
-    setHighlights(prev => {
-      const filtered = prev.filter(h => h.id !== 'preview');
-      return [...filtered, newHighlight];
-    });
-  }, [isDrawingHighlight, highlightStart, highlightColor]);
+    setHighlights(prev => prev.map(h => h.id === 'preview' ? newHighlight : h));
+  };
 
-  // Handle highlight drawing end
-  const handleHighlightEnd = useCallback(() => {
+  const handleHighlightEnd = () => {
     if (!isDrawingHighlight) return;
     
-    setHighlights(prev => {
-      return prev.map(h => {
-        if (h.id === 'preview' && h.width > 2 && h.height > 2) {
-          return { ...h, id: Date.now() };
-        }
-        return h;
-      }).filter(h => h.id !== 'preview' || (h.width > 2 && h.height > 2));
-    });
+    setHighlights(prev => prev.map(h => 
+      h.id === 'preview' ? { ...h, id: Date.now() } : h
+    ).filter(h => h.width > 2 && h.height > 2));
     
     setIsDrawingHighlight(false);
     setHighlightStart(null);
-  }, [isDrawingHighlight]);
-
-  // Delete highlight
-  const deleteHighlight = (id) => {
-    setHighlights(prev => prev.filter(h => h.id !== id));
   };
 
-  // Add event listeners for highlight drawing
-  useEffect(() => {
-    if (isDrawingHighlight) {
-      window.addEventListener('mousemove', handleHighlightDraw);
-      window.addEventListener('mouseup', handleHighlightEnd);
-      window.addEventListener('touchmove', handleHighlightDraw, { passive: false });
-      window.addEventListener('touchend', handleHighlightEnd);
-    }
-    
-    return () => {
-      window.removeEventListener('mousemove', handleHighlightDraw);
-      window.removeEventListener('mouseup', handleHighlightEnd);
-      window.removeEventListener('touchmove', handleHighlightDraw);
-      window.removeEventListener('touchend', handleHighlightEnd);
-    };
-  }, [isDrawingHighlight, handleHighlightDraw, handleHighlightEnd]);
-
-  // Handle crop area drag start
-  const handleCropDragStart = (e, handle = 'move') => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    setIsDraggingCrop(true);
-    setDragHandle(handle);
-    // Store both mouse position AND current crop area
-    setDragStart({ 
-      x: clientX, 
-      y: clientY,
-      cropX: cropArea.x,
-      cropY: cropArea.y,
-      cropW: cropArea.width,
-      cropH: cropArea.height
-    });
-  };
-
-  // Handle crop area drag
-  const handleCropDrag = useCallback((e) => {
-    if (!isDraggingCrop || !editorContainerRef.current) return;
-    
-    e.preventDefault();
-    
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
-    // Get the image element dimensions (not container)
-    const container = editorContainerRef.current;
-    const img = container.querySelector('img');
-    if (!img) return;
-    
-    const rect = img.getBoundingClientRect();
-    
-    // Calculate delta as percentage of image size
-    const deltaX = ((clientX - dragStart.x) / rect.width) * 100;
-    const deltaY = ((clientY - dragStart.y) / rect.height) * 100;
-    
-    setCropArea(() => {
-      const startX = dragStart.cropX;
-      const startY = dragStart.cropY;
-      const startW = dragStart.cropW;
-      const startH = dragStart.cropH;
-      
-      let newArea = { x: startX, y: startY, width: startW, height: startH };
-      
-      switch (dragHandle) {
-        case 'move':
-          newArea.x = Math.max(0, Math.min(100 - startW, startX + deltaX));
-          newArea.y = Math.max(0, Math.min(100 - startH, startY + deltaY));
-          break;
-        case 'nw':
-          const nwNewX = Math.max(0, Math.min(startX + startW - 15, startX + deltaX));
-          const nwNewY = Math.max(0, Math.min(startY + startH - 15, startY + deltaY));
-          newArea.x = nwNewX;
-          newArea.y = nwNewY;
-          newArea.width = startW - (nwNewX - startX);
-          newArea.height = startH - (nwNewY - startY);
-          break;
-        case 'ne':
-          const neNewY = Math.max(0, Math.min(startY + startH - 15, startY + deltaY));
-          newArea.y = neNewY;
-          newArea.width = Math.max(15, Math.min(100 - startX, startW + deltaX));
-          newArea.height = startH - (neNewY - startY);
-          break;
-        case 'sw':
-          const swNewX = Math.max(0, Math.min(startX + startW - 15, startX + deltaX));
-          newArea.x = swNewX;
-          newArea.width = startW - (swNewX - startX);
-          newArea.height = Math.max(15, Math.min(100 - startY, startH + deltaY));
-          break;
-        case 'se':
-          newArea.width = Math.max(15, Math.min(100 - startX, startW + deltaX));
-          newArea.height = Math.max(15, Math.min(100 - startY, startH + deltaY));
-          break;
-        case 'n':
-          const nNewY = Math.max(0, Math.min(startY + startH - 15, startY + deltaY));
-          newArea.y = nNewY;
-          newArea.height = startH - (nNewY - startY);
-          break;
-        case 's':
-          newArea.height = Math.max(15, Math.min(100 - startY, startH + deltaY));
-          break;
-        case 'w':
-          const wNewX = Math.max(0, Math.min(startX + startW - 15, startX + deltaX));
-          newArea.x = wNewX;
-          newArea.width = startW - (wNewX - startX);
-          break;
-        case 'e':
-          newArea.width = Math.max(15, Math.min(100 - startX, startW + deltaX));
-          break;
-        default:
-          break;
-      }
-      
-      return newArea;
-    });
-  }, [isDraggingCrop, dragHandle, dragStart]);
-
-  // Handle crop area drag end
-  const handleCropDragEnd = useCallback(() => {
-    setIsDraggingCrop(false);
-    setDragHandle(null);
-  }, []);
-
-  // Add event listeners for drag
-  useEffect(() => {
-    if (isDraggingCrop) {
-      window.addEventListener('mousemove', handleCropDrag);
-      window.addEventListener('mouseup', handleCropDragEnd);
-      window.addEventListener('touchmove', handleCropDrag);
-      window.addEventListener('touchend', handleCropDragEnd);
-    }
-    
-    return () => {
-      window.removeEventListener('mousemove', handleCropDrag);
-      window.removeEventListener('mouseup', handleCropDragEnd);
-      window.removeEventListener('touchmove', handleCropDrag);
-      window.removeEventListener('touchend', handleCropDragEnd);
-    };
-  }, [isDraggingCrop, handleCropDrag, handleCropDragEnd]);
-
-  // Apply edits and save
   const saveEdits = async () => {
     if (!editingImage || editingIndex === null) return;
     
@@ -987,45 +650,32 @@ const Scanner = () => {
     
     try {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = editingImage;
-      });
+      img.src = editingImage;
+      await new Promise((resolve) => { img.onload = resolve; });
       
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       
-      // Calculate dimensions based on rotation
-      const isRotated90or270 = rotation === 90 || rotation === 270;
-      let sourceWidth = img.width;
-      let sourceHeight = img.height;
-      
-      if (isRotated90or270) {
-        canvas.width = sourceHeight;
-        canvas.height = sourceWidth;
+      if (rotation === 90 || rotation === 270) {
+        canvas.width = img.height;
+        canvas.height = img.width;
       } else {
-        canvas.width = sourceWidth;
-        canvas.height = sourceHeight;
+        canvas.width = img.width;
+        canvas.height = img.height;
       }
       
-      // Apply rotation
       ctx.save();
       ctx.translate(canvas.width / 2, canvas.height / 2);
       ctx.rotate((rotation * Math.PI) / 180);
       
-      if (isRotated90or270) {
-        ctx.drawImage(img, -sourceWidth / 2, -sourceHeight / 2);
+      if (rotation === 90 || rotation === 270) {
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
       } else {
-        ctx.drawImage(img, -sourceWidth / 2, -sourceHeight / 2);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
       }
       ctx.restore();
       
-      // Draw highlights (before text so text appears on top)
-      highlights.forEach(highlight => {
-        if (highlight.id === 'preview') return; // Skip preview
+      highlights.filter(h => h.id !== 'preview').forEach((highlight) => {
         ctx.fillStyle = highlight.color;
         ctx.fillRect(
           (highlight.x / 100) * canvas.width,
@@ -1035,15 +685,10 @@ const Scanner = () => {
         );
       });
       
-      // Draw text annotations
-      textAnnotations.forEach(text => {
-        const fontSize = Math.round((text.fontSize / 100) * canvas.width * 0.05);
-        ctx.font = `bold ${Math.max(fontSize, 14)}px Arial`;
+      textAnnotations.forEach((text) => {
+        ctx.font = `bold ${text.fontSize * 2}px Arial`;
         ctx.fillStyle = text.color;
-        ctx.textBaseline = 'top';
-        
-        // Add shadow for better visibility
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+        ctx.shadowColor = 'white';
         ctx.shadowBlur = 3;
         ctx.shadowOffsetX = 1;
         ctx.shadowOffsetY = 1;
@@ -1054,12 +699,10 @@ const Scanner = () => {
           (text.y / 100) * canvas.height
         );
         
-        // Reset shadow
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
       });
       
-      // If crop mode is active, apply crop
       let finalCanvas = canvas;
       if (editorTool === 'crop') {
         const cropX = (cropArea.x / 100) * canvas.width;
@@ -1075,19 +718,16 @@ const Scanner = () => {
         finalCanvas = croppedCanvas;
       }
       
-      // Convert to blob
       const blob = await new Promise((resolve) => {
         finalCanvas.toBlob((b) => resolve(b), 'image/jpeg', 0.92);
       });
       
-      // Update capturedImages array
       setCapturedImages((prev) => {
         const newImages = [...prev];
         newImages[editingIndex] = blob;
         return newImages;
       });
       
-      // Close editor
       closeEditor();
       
     } catch (err) {
@@ -1099,48 +739,69 @@ const Scanner = () => {
     }
   };
 
-  // ==================== END IMAGE EDITOR FUNCTIONS ====================
+  // ==================== OCR FUNCTIONS ====================
 
-  // Extract text from all images
-  const extractTextFromAll = async () => {
+  const extractTextFromAll = async (detectTables = false) => {
     if (capturedImages.length === 0) return;
     
     setProcessing(true);
-    setProcessingStatus('Extracting text from all pages...');
+    setProcessingStatus(detectTables ? 'Extracting text & detecting tables...' : 'Extracting text from all pages...');
     setProgress(0);
     setError('');
     setMode('processing');
     
     try {
-      const response = await ocrAPI.extractMultiple(capturedImages, (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        setProgress(percentCompleted);
-      });
+      let response;
       
-      if (response.success) {
-        setResult({
-          ocr: {
-            text: response.text,
-            confidence: response.confidence || 98,
-            pages: response.pages
-          }
+      if (detectTables && capturedImages.length === 1) {
+        response = await ocrAPI.extractWithTables(capturedImages[0], (percent) => {
+          setProgress(percent);
         });
-        setMode('result');
+        
+        if (response.success) {
+          setResult({
+            ocr: {
+              text: response.text,
+              confidence: response.confidence || 98,
+            },
+            tables: response.tables || [],
+            tableCount: response.tableCount || 0
+          });
+          setMode('result');
+        } else {
+          throw new Error(response.error || 'Processing failed');
+        }
       } else {
-        setError(response.message || 'OCR processing failed');
-        setMode('multipreview');
+        response = await ocrAPI.extractMultiple(capturedImages, (percent) => {
+          setProgress(percent);
+        });
+        
+        if (response.success) {
+          setResult({
+            ocr: {
+              text: response.text,
+              confidence: response.confidence || 98,
+              pages: response.pages
+            },
+            tables: response.tables || [],
+            tableCount: response.tableCount || 0
+          });
+          setMode('result');
+        } else {
+          throw new Error(response.error || 'Processing failed');
+        }
       }
     } catch (err) {
       console.error('OCR error:', err);
-      setError(err.response?.data?.message || 'Failed to extract text');
+      setError(err.message || err.response?.data?.message || 'Failed to extract text');
       setMode('multipreview');
     } finally {
       setProcessing(false);
       setProgress(0);
+      setProcessingStatus('');
     }
   };
 
-  // Single image OCR (for uploaded single file)
   const processOCR = async () => {
     if (capturedImages.length === 0 && !uploadedFile) return;
     
@@ -1175,7 +836,8 @@ const Scanner = () => {
     }
   };
 
-  // Copy text
+  // ==================== EXPORT FUNCTIONS ====================
+
   const copyText = async () => {
     if (!result?.ocr?.text) return;
     try {
@@ -1186,7 +848,6 @@ const Scanner = () => {
     }
   };
 
-  // Download as TXT
   const downloadText = () => {
     if (!result?.ocr?.text) return;
     const blob = new Blob([result.ocr.text], { type: 'text/plain' });
@@ -1198,7 +859,6 @@ const Scanner = () => {
     URL.revokeObjectURL(url);
   };
 
-  // Download as Word
   const downloadAsWord = () => {
     if (!result?.ocr?.text) return;
     
@@ -1227,14 +887,11 @@ ${summaryText}
         ` : ''}
         
         ${translatedText ? `
-        <h2 style="margin-top: 30px;">Translation (${result.translation.targetLanguage})</h2>
+        <h2 style="margin-top: 30px;">Translation</h2>
         <div style="background: #e3f2fd; padding: 15px; border-radius: 8px;">
 ${translatedText}
         </div>
         ` : ''}
-        
-        <hr style="margin-top: 40px;"/>
-        <p style="color: #999; font-size: 10px;">Powered by AngelPDF - AI Document Scanner</p>
       </body>
       </html>
     `;
@@ -1248,36 +905,16 @@ ${translatedText}
     URL.revokeObjectURL(url);
   };
 
-  // Download as Excel
   const downloadAsExcel = () => {
     if (!result?.ocr?.text) return;
     
-    const text = result.ocr.text;
-    const lines = text.split('\n').filter(line => line.trim());
-    
+    const lines = result.ocr.text.split('\n').filter(line => line.trim());
     let csvContent = '';
     
-    const hasDelimiters = lines.some(line => 
-      line.includes('|') || line.includes('\t') || line.includes('  ')
-    );
-    
-    if (hasDelimiters) {
-      lines.forEach(line => {
-        let cells = line
-          .split(/[|\t]/)
-          .map(cell => cell.trim())
-          .filter(cell => cell && !cell.match(/^[-=]+$/));
-        
-        if (cells.length > 0) {
-          const csvRow = cells.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',');
-          csvContent += csvRow + '\n';
-        }
-      });
-    } else {
-      lines.forEach(line => {
-        csvContent += `"${line.replace(/"/g, '""')}"\n`;
-      });
-    }
+    lines.forEach(line => {
+      const csvLine = `"${line.replace(/"/g, '""')}"`;
+      csvContent += csvLine + '\n';
+    });
     
     const BOM = '\uFEFF';
     const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8' });
@@ -1289,7 +926,127 @@ ${translatedText}
     URL.revokeObjectURL(url);
   };
 
-  // AI Summary
+  const downloadAsPDF = async () => {
+    if (!result?.ocr?.text) return;
+    
+    setProcessing(true);
+    try {
+      const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+      
+      const pdfDoc = await PDFDocument.create();
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      
+      const text = result.ocr.text;
+      const fontSize = 12;
+      const margin = 50;
+      const lineHeight = fontSize * 1.5;
+      
+      let page = pdfDoc.addPage();
+      const { width, height } = page.getSize();
+      let y = height - margin;
+      
+      const words = text.split(' ');
+      let line = '';
+      
+      for (const word of words) {
+        const testLine = line + (line ? ' ' : '') + word;
+        const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+        
+        if (testWidth > width - 2 * margin) {
+          if (y < margin + lineHeight) {
+            page = pdfDoc.addPage();
+            y = page.getSize().height - margin;
+          }
+          
+          page.drawText(line, {
+            x: margin,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+          });
+          
+          y -= lineHeight;
+          line = word;
+        } else {
+          line = testLine;
+        }
+        
+        if (word.includes('\n')) {
+          const parts = word.split('\n');
+          for (let i = 0; i < parts.length; i++) {
+            if (i > 0) {
+              if (y < margin + lineHeight) {
+                page = pdfDoc.addPage();
+                y = page.getSize().height - margin;
+              }
+              y -= lineHeight;
+            }
+          }
+        }
+      }
+      
+      if (line) {
+        if (y < margin + lineHeight) {
+          page = pdfDoc.addPage();
+          y = page.getSize().height - margin;
+        }
+        page.drawText(line, {
+          x: margin,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+      }
+      
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `scan_${Date.now()}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      setError('Failed to generate PDF');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const downloadTablesAsExcel = () => {
+    if (!result?.tables || result.tables.length === 0) return;
+    
+    let csvContent = '';
+    
+    result.tables.forEach((table, tableIndex) => {
+      csvContent += `Table ${tableIndex + 1}\n`;
+      
+      if (table.data && Array.isArray(table.data)) {
+        table.data.forEach(row => {
+          if (Array.isArray(row)) {
+            const csvRow = row.map(cell => `"${String(cell || '').replace(/"/g, '""')}"`).join(',');
+            csvContent += csvRow + '\n';
+          }
+        });
+      }
+      csvContent += '\n';
+    });
+    
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tables_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // ==================== AI FUNCTIONS ====================
+
   const generateSummary = async () => {
     if (!result?.ocr?.text) return;
     
@@ -1312,7 +1069,7 @@ ${translatedText}
     }
   };
 
-  // Translate text
+  // FIXED: Translate text with correct parameter order
   const translateText = async () => {
     if (!selectedLanguage || !result?.ocr?.text) return;
     
@@ -1320,7 +1077,9 @@ ${translatedText}
     setError('');
     
     try {
-      const response = await ocrAPI.translate(result._id, selectedLanguage, result.ocr.text);
+      // FIXED: Correct parameter order (text, language, scanId)
+      const scanId = result?.scanId || result?._id || null;
+      const response = await ocrAPI.translate(result.ocr.text, selectedLanguage, scanId);
       
       if (response.success) {
         setResult(prev => ({
@@ -1481,7 +1240,6 @@ ${translatedText}
 
   const renderCamera = () => (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
-      {/* Header with page counter */}
       <div className="bg-black px-4 py-3 flex items-center justify-between">
         <button
           onClick={() => {
@@ -1520,14 +1278,12 @@ ${translatedText}
         </button>
       </div>
       
-      {/* Camera preview - 55% of screen with tap to focus */}
       <div 
         className="relative" 
         style={{ height: '55vh' }}
         onTouchStart={handleTapToFocus}
         onClick={handleTapToFocus}
       >
-        {/* Loading indicator while camera initializes */}
         {!stream && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
             <div className="text-center">
@@ -1546,7 +1302,6 @@ ${translatedText}
           style={{ display: stream ? 'block' : 'none' }}
         />
         
-        {/* Focus indicator */}
         {focusPoint && (
           <div 
             className={`absolute pointer-events-none transition-all duration-300 ${
@@ -1558,85 +1313,29 @@ ${translatedText}
             }}
           >
             <div className={`w-[60px] h-[60px] border-2 rounded-lg ${
-              isFocusing ? 'border-yellow-400' : 'border-green-400'
+              isFocusing ? 'border-yellow-400 animate-pulse' : 'border-white'
             }`}>
-              <div className="absolute top-1/2 left-0 w-2 h-0.5 bg-yellow-400 -translate-y-1/2"></div>
-              <div className="absolute top-1/2 right-0 w-2 h-0.5 bg-yellow-400 -translate-y-1/2"></div>
-              <div className="absolute left-1/2 top-0 w-0.5 h-2 bg-yellow-400 -translate-x-1/2"></div>
-              <div className="absolute left-1/2 bottom-0 w-0.5 h-2 bg-yellow-400 -translate-x-1/2"></div>
+              <div className="absolute top-1/2 left-0 w-2 h-0.5 bg-yellow-400 -translate-y-1/2" />
+              <div className="absolute top-1/2 right-0 w-2 h-0.5 bg-yellow-400 -translate-y-1/2" />
+              <div className="absolute left-1/2 top-0 w-0.5 h-2 bg-yellow-400 -translate-x-1/2" />
+              <div className="absolute left-1/2 bottom-0 w-0.5 h-2 bg-yellow-400 -translate-x-1/2" />
             </div>
           </div>
-        )}
-        
-        {/* Document guide frame */}
-        {stream && (
-          <>
-            <div className="absolute inset-3 border-2 border-white/40 rounded-xl pointer-events-none">
-              <div className="absolute top-0 left-0 w-6 h-6 border-t-3 border-l-3 border-white rounded-tl-lg"></div>
-              <div className="absolute top-0 right-0 w-6 h-6 border-t-3 border-r-3 border-white rounded-tr-lg"></div>
-              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-3 border-l-3 border-white rounded-bl-lg"></div>
-              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-3 border-r-3 border-white rounded-br-lg"></div>
-            </div>
-            
-            <div className="absolute top-4 left-0 right-0 text-center">
-              <span className="bg-black/60 text-white px-3 py-1 rounded-full text-xs">
-                Tap to focus • Position document within frame
-              </span>
-            </div>
-          </>
         )}
       </div>
       
-      {/* Thumbnail strip */}
-      {capturedImages.length > 0 && (
-        <div className="bg-gray-900 px-4 py-3">
-          <div className="flex gap-2 overflow-x-auto">
-            {capturedImages.map((img, index) => (
-              <div key={index} className="relative flex-shrink-0">
-                <img
-                  src={getImageUrl(img)}
-                  alt={`Page ${index + 1}`}
-                  className="w-14 h-18 object-cover rounded-lg border-2 border-white/50"
-                />
-                <span className="absolute bottom-0 right-0 bg-primary-600 text-white text-xs px-1.5 py-0.5 rounded-tl-lg rounded-br-lg">
-                  {index + 1}
-                </span>
-              </div>
-            ))}
-            <div className="flex-shrink-0 w-14 h-18 border-2 border-dashed border-white/30 rounded-lg flex items-center justify-center">
-              <Plus className="w-6 h-6 text-white/50" />
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Bottom controls - Always visible */}
-      <div className="flex-1 bg-black flex flex-col items-center justify-center px-6 py-4">
-        <p className="text-white/70 text-sm mb-4">
-          {capturedImages.length === 0 
-            ? 'Tap screen to focus, then capture' 
-            : `Tap to add page ${capturedImages.length + 1}`
-          }
-        </p>
-        
-        {/* Capture button - Always visible */}
+      <div className="flex-1 bg-black flex flex-col items-center justify-center px-4">
         <button
           onClick={capturePhoto}
           disabled={!stream}
-          className={`w-20 h-20 rounded-full flex items-center justify-center shadow-lg border-4 border-white ${
-            stream ? 'bg-white' : 'bg-white/50'
-          }`}
+          className="w-20 h-20 bg-white rounded-full flex items-center justify-center mb-4 active:scale-95 transition-transform"
         >
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
-            stream ? 'bg-primary-600' : 'bg-primary-400'
-          }`}>
-            <Camera className="w-8 h-8 text-white" />
-          </div>
+          <div className="w-16 h-16 bg-white border-4 border-gray-800 rounded-full" />
         </button>
         
         {capturedImages.length > 0 && (
-          <p className="text-green-400 text-sm mt-4">
-            ✓ {capturedImages.length} photo{capturedImages.length > 1 ? 's' : ''} captured • Tap "Done" when finished
+          <p className="text-white/70 text-sm">
+            {capturedImages.length} page{capturedImages.length > 1 ? 's' : ''} captured • Tap "Done" when finished
           </p>
         )}
       </div>
@@ -1647,7 +1346,6 @@ ${translatedText}
 
   const renderMultiPreview = () => (
     <div className="max-w-4xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="font-bold text-2xl">{capturedImages.length} Page{capturedImages.length > 1 ? 's' : ''} Ready</h2>
@@ -1661,11 +1359,9 @@ ${translatedText}
         </button>
       </div>
       
-      {/* Main preview - Tap to edit */}
       <div className="relative bg-gray-100 rounded-2xl p-4 mb-4">
         {capturedImages.length > 0 && (
           <>
-            {/* Clickable image to open editor */}
             <div 
               onClick={() => openEditor(currentPreviewIndex)}
               className="cursor-pointer relative group"
@@ -1675,7 +1371,6 @@ ${translatedText}
                 alt={`Page ${currentPreviewIndex + 1}`}
                 className="w-full max-h-[400px] object-contain rounded-xl mx-auto"
               />
-              {/* Edit overlay on hover */}
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded-xl flex items-center justify-center">
                 <div className="opacity-0 group-hover:opacity-100 transition-all bg-white px-4 py-2 rounded-full flex items-center gap-2 shadow-lg">
                   <Crop className="w-5 h-5 text-primary-600" />
@@ -1684,14 +1379,13 @@ ${translatedText}
               </div>
             </div>
             
-            {/* Navigation arrows */}
             {capturedImages.length > 1 && (
               <>
                 <button
                   onClick={(e) => { e.stopPropagation(); setCurrentPreviewIndex(prev => Math.max(0, prev - 1)); }}
                   disabled={currentPreviewIndex === 0}
                   className={`absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center ${
-                    currentPreviewIndex === 0 ? 'bg-gray-200 text-gray-400' : 'bg-white shadow text-gray-700 hover:bg-gray-50'
+                    currentPreviewIndex === 0 ? 'bg-gray-300 text-gray-400' : 'bg-white shadow-lg text-gray-700 hover:bg-gray-50'
                   }`}
                 >
                   <ChevronLeft className="w-6 h-6" />
@@ -1700,7 +1394,7 @@ ${translatedText}
                   onClick={(e) => { e.stopPropagation(); setCurrentPreviewIndex(prev => Math.min(capturedImages.length - 1, prev + 1)); }}
                   disabled={currentPreviewIndex === capturedImages.length - 1}
                   className={`absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full flex items-center justify-center ${
-                    currentPreviewIndex === capturedImages.length - 1 ? 'bg-gray-200 text-gray-400' : 'bg-white shadow text-gray-700 hover:bg-gray-50'
+                    currentPreviewIndex === capturedImages.length - 1 ? 'bg-gray-300 text-gray-400' : 'bg-white shadow-lg text-gray-700 hover:bg-gray-50'
                   }`}
                 >
                   <ChevronRight className="w-6 h-6" />
@@ -1708,38 +1402,23 @@ ${translatedText}
               </>
             )}
             
-            {/* Page indicator */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/70 text-white px-3 py-1 rounded-full text-sm">
-              Page {currentPreviewIndex + 1} of {capturedImages.length}
-            </div>
-            
-            {/* Edit button */}
-            <button
-              onClick={(e) => { e.stopPropagation(); openEditor(currentPreviewIndex); }}
-              className="absolute top-2 left-2 w-10 h-10 bg-primary-500 text-white rounded-full flex items-center justify-center hover:bg-primary-600 shadow-lg"
-            >
-              <Crop className="w-5 h-5" />
-            </button>
-            
-            {/* Delete button */}
             <button
               onClick={(e) => { e.stopPropagation(); deleteImage(currentPreviewIndex); }}
-              className="absolute top-2 right-2 w-10 h-10 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+              className="absolute top-2 right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
             >
-              <Trash2 className="w-5 h-5" />
+              <Trash2 className="w-4 h-4" />
             </button>
           </>
         )}
       </div>
       
-      {/* Thumbnail strip */}
-      <div className="flex gap-2 overflow-x-auto pb-4 mb-6">
+      <div className="flex gap-2 overflow-x-auto pb-2 mb-6">
         {capturedImages.map((img, index) => (
           <button
             key={index}
             onClick={() => setCurrentPreviewIndex(index)}
-            className={`relative flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${
-              currentPreviewIndex === index ? 'border-primary-500 ring-2 ring-primary-200' : 'border-gray-200'
+            className={`flex-shrink-0 relative rounded-lg overflow-hidden border-2 transition-all ${
+              index === currentPreviewIndex ? 'border-primary-500 ring-2 ring-primary-200' : 'border-gray-200'
             }`}
           >
             <img
@@ -1753,7 +1432,6 @@ ${translatedText}
           </button>
         ))}
         
-        {/* Add more button */}
         <button
           onClick={addMoreImages}
           className="flex-shrink-0 w-16 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center text-gray-400 hover:border-primary-400 hover:text-primary-500 transition-colors"
@@ -1763,37 +1441,51 @@ ${translatedText}
         </button>
       </div>
       
-      {/* Action buttons */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="space-y-4">
         <button
           onClick={createPDF}
           disabled={processing}
-          className="btn-primary py-4 flex items-center justify-center gap-2"
+          className="w-full btn-primary py-4 flex items-center justify-center gap-2"
         >
-          {processing ? (
+          {processing && processingStatus?.includes('PDF') ? (
             <>
               <Loader className="w-5 h-5 animate-spin" />
-              <span>Creating...</span>
+              <span>Creating PDF...</span>
             </>
           ) : (
             <>
-              <Sparkles className="w-5 h-5" />
-              <span>Create Smart AI Enhanced PDF</span>
+              <FileDown className="w-5 h-5" />
+              <span>Create PDF</span>
             </>
           )}
         </button>
         
-        <button
-          onClick={extractTextFromAll}
-          disabled={processing}
-          className="btn-outline py-4 flex items-center justify-center gap-2"
-        >
-          <FileText className="w-5 h-5" />
-          <span>Extract Text</span>
-        </button>
+        <div className="bg-gray-50 rounded-xl p-4">
+          <h3 className="font-semibold text-gray-700 mb-3 text-sm">Extract Content</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => extractTextFromAll(false)}
+              disabled={processing}
+              className="bg-white border-2 border-gray-200 hover:border-primary-400 rounded-xl p-4 flex flex-col items-center gap-2 transition-all"
+            >
+              <FileText className="w-8 h-8 text-primary-600" />
+              <span className="font-medium text-sm">Text Only</span>
+              <span className="text-xs text-gray-500">Faster</span>
+            </button>
+            
+            <button
+              onClick={() => extractTextFromAll(true)}
+              disabled={processing}
+              className="bg-white border-2 border-gray-200 hover:border-blue-400 rounded-xl p-4 flex flex-col items-center gap-2 transition-all"
+            >
+              <Table className="w-8 h-8 text-blue-600" />
+              <span className="font-medium text-sm">Text + Tables</span>
+              <span className="text-xs text-gray-500">Detects tables</span>
+            </button>
+          </div>
+        </div>
       </div>
       
-      {/* Processing status */}
       {processing && processingStatus && (
         <div className="mt-4 p-4 bg-primary-50 rounded-xl">
           <div className="flex items-center gap-3">
@@ -1820,7 +1512,6 @@ ${translatedText}
         </div>
       )}
       
-      {/* Hidden file input for Add More on desktop */}
       <input
         ref={fileInputRef}
         type="file"
@@ -1834,7 +1525,6 @@ ${translatedText}
 
   const renderEditor = () => (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
-      {/* Header */}
       <div className="bg-gray-900 px-4 py-3 flex items-center justify-between">
         <button
           onClick={closeEditor}
@@ -1860,430 +1550,183 @@ ${translatedText}
         </button>
       </div>
       
-      {/* Editor Canvas Area */}
       <div 
         ref={editorContainerRef}
-        className="flex-1 relative overflow-hidden flex items-center justify-center bg-gray-800 p-4"
-        onClick={(e) => {
-          if (editorTool === 'text' && !draggingTextId) {
-            handleImageTapForText(e);
-          }
-        }}
-        onMouseDown={(e) => {
-          if (editorTool === 'highlight') {
-            handleHighlightStart(e);
-          }
-        }}
-        onTouchStart={(e) => {
-          if (editorTool === 'highlight') {
-            handleHighlightStart(e);
-          }
-        }}
+        className="flex-1 relative overflow-hidden bg-gray-800 flex items-center justify-center"
+        onClick={handleEditorClick}
+        onMouseDown={handleHighlightStart}
+        onMouseMove={handleHighlightMove}
+        onMouseUp={handleHighlightEnd}
+        onMouseLeave={handleHighlightEnd}
       >
         {editingImage && (
           <div className="relative max-w-full max-h-full">
-            {/* Image with rotation */}
             <img
               src={editingImage}
               alt="Editing"
-              className={`max-w-full max-h-[55vh] object-contain transition-transform duration-200 ${
-                editorTool === 'text' ? 'cursor-crosshair' : 
-                editorTool === 'highlight' ? 'cursor-crosshair' : ''
-              }`}
+              className="max-w-full max-h-[60vh] object-contain"
               style={{ transform: `rotate(${rotation}deg)` }}
-              draggable={false}
             />
             
-            {/* Highlights overlay */}
+            {editorTool === 'crop' && (
+              <div
+                className="absolute border-2 border-white bg-black/30"
+                style={{
+                  left: `${cropArea.x}%`,
+                  top: `${cropArea.y}%`,
+                  width: `${cropArea.width}%`,
+                  height: `${cropArea.height}%`,
+                }}
+              >
+                <div className="absolute -top-1 -left-1 w-3 h-3 bg-white rounded-full cursor-nw-resize" />
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full cursor-ne-resize" />
+                <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-white rounded-full cursor-sw-resize" />
+                <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-white rounded-full cursor-se-resize" />
+              </div>
+            )}
+            
             {highlights.map((highlight) => (
               <div
                 key={highlight.id}
-                className={`absolute ${highlight.id !== 'preview' && editorTool === 'highlight' ? 'cursor-pointer' : 'pointer-events-none'}`}
+                className="absolute pointer-events-none"
                 style={{
                   left: `${highlight.x}%`,
                   top: `${highlight.y}%`,
                   width: `${highlight.width}%`,
                   height: `${highlight.height}%`,
                   backgroundColor: highlight.color,
-                  border: highlight.id === 'preview' ? '2px dashed white' : 'none'
                 }}
-                onClick={(e) => {
-                  if (highlight.id !== 'preview' && editorTool === 'highlight') {
-                    e.stopPropagation();
-                    deleteHighlight(highlight.id);
-                  }
-                }}
-              >
-                {/* Delete button for highlights */}
-                {highlight.id !== 'preview' && editorTool === 'highlight' && (
-                  <button 
-                    className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center shadow-lg"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteHighlight(highlight.id);
-                    }}
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
+              />
             ))}
             
-            {/* Text annotations overlay */}
             {textAnnotations.map((text) => (
               <div
                 key={text.id}
-                className={`absolute select-none ${
-                  editorTool === 'text' ? 'cursor-move' : 'pointer-events-none'
-                } ${activeTextId === text.id ? 'ring-2 ring-white ring-offset-2 ring-offset-transparent rounded' : ''}`}
+                className={`absolute cursor-move select-none ${
+                  activeTextId === text.id ? 'ring-2 ring-white' : ''
+                }`}
                 style={{
                   left: `${text.x}%`,
                   top: `${text.y}%`,
+                  color: text.color,
+                  fontSize: `${text.fontSize}px`,
+                  fontWeight: 'bold',
+                  textShadow: '1px 1px 2px white',
                 }}
-                onMouseDown={(e) => handleTextDragStart(e, text.id)}
-                onTouchStart={(e) => handleTextDragStart(e, text.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveTextId(text.id);
+                }}
               >
-                <span 
-                  className="font-bold whitespace-nowrap px-2 py-1 rounded"
-                  style={{ 
-                    color: text.color,
-                    fontSize: `${text.fontSize}px`,
-                    textShadow: '1px 1px 2px rgba(255,255,255,0.9), -1px -1px 2px rgba(255,255,255,0.9)',
-                    backgroundColor: 'rgba(255,255,255,0.3)'
-                  }}
-                >
-                  {text.text}
-                </span>
-                {/* Delete button for text */}
-                {editorTool === 'text' && (
-                  <button 
-                    className="absolute -top-3 -right-3 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center shadow-lg"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteTextAnnotation(text.id);
-                    }}
-                    onTouchEnd={(e) => {
-                      e.stopPropagation();
-                      deleteTextAnnotation(text.id);
-                    }}
-                  >
-                    ×
-                  </button>
-                )}
+                {text.text}
               </div>
             ))}
             
-            {/* Text position indicator when adding */}
             {isAddingText && newTextPosition && (
               <div
-                className="absolute w-4 h-4 border-2 border-white bg-primary-500 rounded-full animate-pulse"
+                className="absolute"
                 style={{
                   left: `${newTextPosition.x}%`,
                   top: `${newTextPosition.y}%`,
-                  transform: 'translate(-50%, -50%)'
                 }}
-              />
-            )}
-            
-            {/* Crop Overlay */}
-            {editorTool === 'crop' && (
-              <div 
-                className="absolute inset-0"
-                style={{ transform: `rotate(${rotation}deg)` }}
               >
-                {/* Dark overlay outside crop area */}
-                <div 
-                  className="absolute inset-0 pointer-events-none"
-                  style={{
-                    background: `linear-gradient(to right, 
-                      rgba(0,0,0,0.7) ${cropArea.x}%, 
-                      transparent ${cropArea.x}%, 
-                      transparent ${cropArea.x + cropArea.width}%, 
-                      rgba(0,0,0,0.7) ${cropArea.x + cropArea.width}%
-                    )`
-                  }}
-                />
-                <div 
-                  className="absolute pointer-events-none"
-                  style={{
-                    left: `${cropArea.x}%`,
-                    top: 0,
-                    width: `${cropArea.width}%`,
-                    height: `${cropArea.y}%`,
-                    background: 'rgba(0,0,0,0.7)'
-                  }}
-                />
-                <div 
-                  className="absolute pointer-events-none"
-                  style={{
-                    left: `${cropArea.x}%`,
-                    top: `${cropArea.y + cropArea.height}%`,
-                    width: `${cropArea.width}%`,
-                    bottom: 0,
-                    background: 'rgba(0,0,0,0.7)'
-                  }}
-                />
-                
-                {/* Crop area - moveable */}
-                <div 
-                  className="absolute border-2 border-white cursor-move"
-                  style={{
-                    left: `${cropArea.x}%`,
-                    top: `${cropArea.y}%`,
-                    width: `${cropArea.width}%`,
-                    height: `${cropArea.height}%`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'move')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'move')}
-                >
-                  {/* Grid lines */}
-                  <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/50" />
-                    <div className="absolute left-2/3 top-0 bottom-0 w-px bg-white/50" />
-                    <div className="absolute top-1/3 left-0 right-0 h-px bg-white/50" />
-                    <div className="absolute top-2/3 left-0 right-0 h-px bg-white/50" />
-                  </div>
-                  
-                  {/* Move icon in center */}
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/50 rounded-full p-2 pointer-events-none">
-                    <Move className="w-6 h-6 text-white" />
-                  </div>
-                </div>
-                
-                {/* Corner handles - BIGGER for mobile */}
-                {/* Top-left */}
-                <div 
-                  className="absolute w-10 h-10 cursor-nw-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x}% - 20px)`,
-                    top: `calc(${cropArea.y}% - 20px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'nw')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'nw')}
-                >
-                  <div className="absolute bottom-1 right-1 w-5 h-1.5 bg-white rounded" />
-                  <div className="absolute bottom-1 right-1 w-1.5 h-5 bg-white rounded" />
-                </div>
-                
-                {/* Top-right */}
-                <div 
-                  className="absolute w-10 h-10 cursor-ne-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x + cropArea.width}% - 20px)`,
-                    top: `calc(${cropArea.y}% - 20px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'ne')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'ne')}
-                >
-                  <div className="absolute bottom-1 left-1 w-5 h-1.5 bg-white rounded" />
-                  <div className="absolute bottom-1 left-1 w-1.5 h-5 bg-white rounded" />
-                </div>
-                
-                {/* Bottom-left */}
-                <div 
-                  className="absolute w-10 h-10 cursor-sw-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x}% - 20px)`,
-                    top: `calc(${cropArea.y + cropArea.height}% - 20px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'sw')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'sw')}
-                >
-                  <div className="absolute top-1 right-1 w-5 h-1.5 bg-white rounded" />
-                  <div className="absolute top-1 right-1 w-1.5 h-5 bg-white rounded" />
-                </div>
-                
-                {/* Bottom-right */}
-                <div 
-                  className="absolute w-10 h-10 cursor-se-resize z-10"
-                  style={{
-                    left: `calc(${cropArea.x + cropArea.width}% - 20px)`,
-                    top: `calc(${cropArea.y + cropArea.height}% - 20px)`,
-                  }}
-                  onMouseDown={(e) => handleCropDragStart(e, 'se')}
-                  onTouchStart={(e) => handleCropDragStart(e, 'se')}
-                >
-                  <div className="absolute top-1 left-1 w-5 h-1.5 bg-white rounded" />
-                  <div className="absolute top-1 left-1 w-1.5 h-5 bg-white rounded" />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        
-        {/* Text Input Modal */}
-        {isAddingText && newTextPosition && (
-          <div 
-            className="absolute inset-0 bg-black/50 flex items-center justify-center z-20"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                cancelAddText();
-              }
-            }}
-          >
-            <div className="bg-white rounded-2xl p-5 w-[90%] max-w-sm shadow-2xl">
-              <h4 className="font-bold text-lg mb-3 text-center">Add Text</h4>
-              <input
-                type="text"
-                value={newTextValue}
-                onChange={(e) => setNewTextValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newTextValue.trim()) {
-                    addTextAnnotation();
-                  } else if (e.key === 'Escape') {
-                    cancelAddText();
-                  }
-                }}
-                placeholder="Type your text here..."
-                className="w-full p-3 border border-gray-300 rounded-xl mb-4 focus:outline-none focus:ring-2 focus:ring-primary-500 text-lg"
-                autoFocus
-              />
-              
-              {/* Color picker */}
-              <div className="flex items-center justify-center gap-3 mb-5">
-                <span className="text-sm text-gray-600">Color:</span>
-                <div className="flex gap-2">
-                  {['#FF0000', '#0000FF', '#00AA00', '#FF6600', '#000000', '#FFFFFF'].map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setTextColor(color)}
-                      className={`w-9 h-9 rounded-full border-2 transition-all ${
-                        textColor === color ? 'border-primary-500 scale-110' : 'border-gray-300'
-                      } ${color === '#FFFFFF' ? 'bg-white' : ''}`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={cancelAddText}
-                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl text-gray-600 font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    if (newTextValue.trim()) {
-                      addTextAnnotation();
+                <input
+                  type="text"
+                  value={newTextValue}
+                  onChange={(e) => setNewTextValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addTextAnnotation();
+                    if (e.key === 'Escape') {
+                      setIsAddingText(false);
+                      setNewTextPosition(null);
                     }
                   }}
-                  disabled={!newTextValue.trim()}
-                  className="flex-1 py-3 px-4 bg-primary-600 text-white rounded-xl disabled:opacity-50 font-medium"
-                >
-                  Add Text
-                </button>
+                  placeholder="Type text..."
+                  className="px-2 py-1 text-sm border-2 border-primary-500 rounded bg-white"
+                  autoFocus
+                />
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
       
-      {/* Tool Bar */}
-      <div className="bg-gray-900 px-4 py-4 safe-bottom">
-        <div className="flex items-center justify-center gap-2 flex-wrap">
-          {/* Rotate Left */}
+      <div className="bg-gray-900 p-4">
+        <div className="flex justify-center gap-4 mb-4">
           <button
             onClick={() => rotateImage(-90)}
-            className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors"
+            className="w-12 h-12 bg-gray-700 rounded-xl flex items-center justify-center text-white hover:bg-gray-600"
           >
-            <RotateCcw className="w-5 h-5 text-white" />
-            <span className="text-[10px] text-gray-400">Left</span>
+            <RotateCcw className="w-6 h-6" />
           </button>
-          
-          {/* Rotate Right */}
           <button
             onClick={() => rotateImage(90)}
-            className="flex flex-col items-center gap-1 px-3 py-2 rounded-xl hover:bg-gray-800 transition-colors"
+            className="w-12 h-12 bg-gray-700 rounded-xl flex items-center justify-center text-white hover:bg-gray-600"
           >
-            <RotateCw className="w-5 h-5 text-white" />
-            <span className="text-[10px] text-gray-400">Right</span>
+            <RotateCw className="w-6 h-6" />
           </button>
-          
-          {/* Crop Toggle */}
           <button
             onClick={toggleCropMode}
-            className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-colors ${
-              editorTool === 'crop' ? 'bg-primary-600' : 'hover:bg-gray-800'
+            className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+              editorTool === 'crop' ? 'bg-primary-500 text-white' : 'bg-gray-700 text-white hover:bg-gray-600'
             }`}
           >
-            <Crop className="w-5 h-5 text-white" />
-            <span className="text-[10px] text-gray-400">Crop</span>
+            <Crop className="w-6 h-6" />
           </button>
-          
-          {/* Text Toggle */}
           <button
             onClick={toggleTextMode}
-            className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-colors ${
-              editorTool === 'text' ? 'bg-blue-600' : 'hover:bg-gray-800'
+            className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+              editorTool === 'text' ? 'bg-primary-500 text-white' : 'bg-gray-700 text-white hover:bg-gray-600'
             }`}
           >
-            <Type className="w-5 h-5 text-white" />
-            <span className="text-[10px] text-gray-400">Text</span>
+            <Type className="w-6 h-6" />
           </button>
-          
-          {/* Highlight Toggle */}
           <button
             onClick={toggleHighlightMode}
-            className={`flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-colors ${
-              editorTool === 'highlight' ? 'bg-yellow-600' : 'hover:bg-gray-800'
+            className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+              editorTool === 'highlight' ? 'bg-yellow-500 text-white' : 'bg-gray-700 text-white hover:bg-gray-600'
             }`}
           >
-            <Highlighter className="w-5 h-5 text-white" />
-            <span className="text-[10px] text-gray-400">Highlight</span>
+            <Highlighter className="w-6 h-6" />
           </button>
         </div>
         
-        {/* Tool instructions */}
-        {editorTool === 'crop' && (
-          <p className="text-center text-gray-400 text-xs mt-3">
-            Drag corners to adjust • Drag center to move
-          </p>
-        )}
         {editorTool === 'text' && (
-          <div className="mt-3 text-center">
-            <p className="text-gray-400 text-xs">
-              👆 Tap on image where you want text
-            </p>
-            <p className="text-gray-500 text-[10px] mt-1">
-              Drag text to move • Tap ✕ to delete
-            </p>
+          <div className="flex justify-center gap-2">
+            {['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#000000'].map((color) => (
+              <button
+                key={color}
+                onClick={() => setTextColor(color)}
+                className={`w-8 h-8 rounded-full border-2 ${
+                  textColor === color ? 'border-white scale-110' : 'border-gray-600'
+                }`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
           </div>
         )}
+        
         {editorTool === 'highlight' && (
-          <div className="mt-3">
-            <p className="text-center text-gray-400 text-xs mb-2">
-              👆 Press & drag on image to highlight • Tap ✕ to delete
-            </p>
-            <div className="flex items-center justify-center gap-2">
-              <span className="text-xs text-gray-400">Color:</span>
-              {[
-                'rgba(255, 255, 0, 0.4)',
-                'rgba(0, 255, 0, 0.4)',
-                'rgba(255, 0, 255, 0.4)',
-                'rgba(0, 255, 255, 0.4)',
-                'rgba(255, 165, 0, 0.4)'
-              ].map((color) => (
-                <button
-                  key={color}
-                  onClick={() => setHighlightColor(color)}
-                  className={`w-7 h-7 rounded border-2 transition-all ${
-                    highlightColor === color ? 'border-white scale-110' : 'border-gray-600'
-                  }`}
-                  style={{ backgroundColor: color }}
-                />
-              ))}
-            </div>
+          <div className="flex justify-center gap-2">
+            {['rgba(255, 255, 0, 0.4)', 'rgba(0, 255, 0, 0.4)', 'rgba(255, 0, 255, 0.4)', 'rgba(0, 255, 255, 0.4)'].map((color) => (
+              <button
+                key={color}
+                onClick={() => setHighlightColor(color)}
+                className={`w-8 h-8 rounded-full border-2 ${
+                  highlightColor === color ? 'border-white scale-110' : 'border-gray-600'
+                }`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
           </div>
         )}
+        
         {!editorTool && (
           <p className="text-center text-gray-500 text-xs mt-3">
             Select a tool above to start editing
           </p>
         )}
         
-        {/* Stats */}
         <div className="flex justify-center gap-4 mt-2 text-xs text-gray-500">
           {rotation !== 0 && <span>Rotated {rotation}°</span>}
           {textAnnotations.length > 0 && <span>{textAnnotations.length} text(s)</span>}
@@ -2312,7 +1755,6 @@ ${translatedText}
 
   const renderResults = () => (
     <div className="max-w-5xl mx-auto">
-      {/* New Scan Button - Top */}
       <div className="mb-6 flex justify-between items-center">
         <h2 className="font-bold text-2xl">Extraction Results</h2>
         <button onClick={startNewScan} className="btn-primary">
@@ -2321,7 +1763,6 @@ ${translatedText}
         </button>
       </div>
       
-      {/* Extracted text */}
       <div className="card mb-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-lg">Extracted Text</h3>
@@ -2336,41 +1777,102 @@ ${translatedText}
           className="w-full min-h-[300px] p-3 border border-gray-200 rounded-xl font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
         
-        {/* Action buttons */}
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button onClick={copyText} className="btn-outline text-sm py-2">
-            <Copy className="w-4 h-4" />
-            <span>Copy</span>
-          </button>
-          
-          <button onClick={downloadText} className="btn-outline text-sm py-2">
-            <Download className="w-4 h-4" />
-            <span>TXT</span>
-          </button>
-          
-          <button onClick={downloadAsWord} className="btn-outline text-sm py-2">
-            <FileText className="w-4 h-4" />
-            <span>Word</span>
-          </button>
-          
-          <button onClick={downloadAsExcel} className="btn-outline text-sm py-2">
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Excel</span>
-          </button>
+        <div className="mt-4">
+          <p className="text-sm text-gray-500 mb-2">Export as:</p>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <button onClick={copyText} className="btn-outline text-sm py-2">
+              <Copy className="w-4 h-4" />
+              <span>Copy</span>
+            </button>
+            
+            <button onClick={downloadText} className="btn-outline text-sm py-2">
+              <Download className="w-4 h-4" />
+              <span>TXT</span>
+            </button>
+            
+            <button onClick={downloadAsWord} className="btn-outline text-sm py-2">
+              <FileText className="w-4 h-4" />
+              <span>Word</span>
+            </button>
+            
+            <button onClick={downloadAsExcel} className="btn-outline text-sm py-2">
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Excel</span>
+            </button>
+            
+            <button onClick={downloadAsPDF} disabled={processing} className="btn-outline text-sm py-2">
+              {processing ? (
+                <Loader className="w-4 h-4 animate-spin" />
+              ) : (
+                <FileDown className="w-4 h-4" />
+              )}
+              <span>PDF</span>
+            </button>
+          </div>
         </div>
       </div>
       
-      {/* AI Summary Section */}
+      {result?.tables && result.tables.length > 0 && (
+        <div className="card mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <Table className="w-5 h-5 text-blue-500" />
+              Detected Tables ({result.tables.length})
+            </h3>
+            <button
+              onClick={() => downloadTablesAsExcel()}
+              className="btn-primary text-sm py-2"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Export Tables</span>
+            </button>
+          </div>
+          
+          <div className="space-y-4">
+            {result.tables.map((table, tableIndex) => (
+              <div key={tableIndex} className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                  <span className="font-medium text-sm text-gray-600">
+                    Table {tableIndex + 1} ({table.rows || table.data?.length || 0} rows × {table.cols || table.data?.[0]?.length || 0} cols)
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {table.data?.slice(0, 10).map((row, rowIndex) => (
+                        <tr key={rowIndex} className={rowIndex === 0 ? 'bg-blue-50 font-medium' : rowIndex % 2 === 0 ? 'bg-gray-50' : ''}>
+                          {row.map((cell, cellIndex) => (
+                            <td key={cellIndex} className="px-3 py-2 border-r border-gray-200 last:border-r-0">
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {table.data?.length > 10 && (
+                  <div className="px-4 py-2 bg-gray-50 text-sm text-gray-500 text-center border-t">
+                    Showing 10 of {table.data.length} rows
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
       <div className="card mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-lg flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-purple-500" />
-            AI Summary
-          </h3>
+        <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-purple-500" />
+          AI Summary
+        </h3>
+        
+        <div className="flex items-center gap-3 mb-4">
           <button
             onClick={generateSummary}
             disabled={summarizing}
-            className="btn-primary text-sm py-2"
+            className="btn-outline text-sm"
           >
             {summarizing ? (
               <>
@@ -2397,7 +1899,6 @@ ${translatedText}
         )}
       </div>
       
-      {/* Translation Section */}
       <div className="card">
         <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
           <Globe className="w-5 h-5 text-blue-500" />
