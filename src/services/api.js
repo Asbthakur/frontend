@@ -3,11 +3,10 @@ import axios from 'axios';
 // API base URL - change this for production
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 60000, // Increased timeout for large uploads
   headers: {
     'Content-Type': 'application/json',
   },
@@ -32,11 +31,10 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid - only clear storage, don't redirect
-      // This allows anonymous users to continue using public features
+      // Token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      // Don't redirect - let the app handle it
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -77,117 +75,260 @@ export const authAPI = {
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    // Redirect to home instead of login
-    window.location.href = '/';
+    window.location.href = '/login';
   },
 };
 
-// ==================== OCR APIs ====================
+// ==================== OCR APIs (with Queue Support) ====================
+
+/**
+ * Poll for job result with exponential backoff
+ * @param {string} jobId - Job ID to poll
+ * @param {function} onProgress - Progress callback (0-100)
+ * @param {number} maxAttempts - Maximum polling attempts
+ * @param {number} initialDelay - Initial delay in ms
+ * @returns {Promise<object>} - Final result
+ */
+async function pollJobResult(jobId, onProgress, maxAttempts = 60, initialDelay = 500) {
+  let attempts = 0;
+  let delay = initialDelay;
+  
+  while (attempts < maxAttempts) {
+    try {
+      const response = await api.get(`/api/ocr/result/${jobId}`);
+      const data = response.data;
+      
+      // Update progress
+      if (onProgress && data.progress) {
+        onProgress(data.progress);
+      }
+      
+      // Check if completed or failed
+      if (data.status === 'completed') {
+        if (onProgress) onProgress(100);
+        return data;
+      } else if (data.status === 'failed') {
+        throw new Error(data.error || 'Processing failed');
+      }
+      
+      // Still processing, wait and retry
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Exponential backoff (max 3 seconds)
+      delay = Math.min(delay * 1.2, 3000);
+      attempts++;
+      
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new Error('Job not found');
+      }
+      throw error;
+    }
+  }
+  
+  throw new Error('Processing timeout. Please try again.');
+}
 
 export const ocrAPI = {
+  /**
+   * Extract text from image (Queued)
+   * @param {File} imageFile - Image file to process
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - OCR result
+   */
   extractText: async (imageFile, progressCallback) => {
     const formData = new FormData();
     formData.append('image', imageFile);
 
+    // Upload and get jobId
+    if (progressCallback) progressCallback(5);
+    
     const response = await api.post('/api/ocr/extract', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(percentCompleted);
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (progressCallback) progressCallback(Math.min(percent * 0.2, 20)); // 0-20% for upload
       },
     });
+    
+    // If queued, poll for result
+    if (response.data.queued && response.data.jobId) {
+      if (progressCallback) progressCallback(25);
+      
+      const result = await pollJobResult(
+        response.data.jobId,
+        (progress) => {
+          // Map worker progress (0-100) to our range (25-100)
+          if (progressCallback) progressCallback(25 + (progress * 0.75));
+        }
+      );
+      
+      return result;
+    }
+    
+    // Direct response (fallback for non-queued)
     return response.data;
   },
 
+  /**
+   * Extract text with table detection (Queued)
+   * @param {File} imageFile - Image file to process
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - OCR result with tables
+   */
   extractWithTables: async (imageFile, progressCallback) => {
     const formData = new FormData();
     formData.append('image', imageFile);
 
+    if (progressCallback) progressCallback(5);
+    
     const response = await api.post('/api/ocr/extract-with-tables', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(percentCompleted);
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (progressCallback) progressCallback(Math.min(percent * 0.2, 20));
       },
+    });
+    
+    if (response.data.queued && response.data.jobId) {
+      if (progressCallback) progressCallback(25);
+      
+      const result = await pollJobResult(
+        response.data.jobId,
+        (progress) => {
+          if (progressCallback) progressCallback(25 + (progress * 0.75));
+        }
+      );
+      
+      return result;
+    }
+    
+    return response.data;
+  },
+
+  /**
+   * Extract text from multiple images (Queued)
+   * @param {File[]} imageFiles - Array of image files
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - OCR result with pages
+   */
+  extractMultiple: async (imageFiles, progressCallback) => {
+    const formData = new FormData();
+    imageFiles.forEach((file) => formData.append('images', file));
+
+    if (progressCallback) progressCallback(5);
+    
+    const response = await api.post('/api/ocr/extract-multiple', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (progressCallback) progressCallback(Math.min(percent * 0.2, 20));
+      },
+    });
+    
+    if (response.data.queued && response.data.jobId) {
+      if (progressCallback) progressCallback(25);
+      
+      const result = await pollJobResult(
+        response.data.jobId,
+        (progress) => {
+          if (progressCallback) progressCallback(25 + (progress * 0.75));
+        },
+        120 // More attempts for multiple images
+      );
+      
+      return result;
+    }
+    
+    return response.data;
+  },
+
+  /**
+   * Get job result directly
+   * @param {string} jobId - Job ID
+   * @returns {Promise<object>} - Job status and result
+   */
+  getJobResult: async (jobId) => {
+    const response = await api.get(`/api/ocr/result/${jobId}`);
+    return response.data;
+  },
+
+  /**
+   * Create PDF from images (Synchronous - No AI)
+   * @param {File[]} imageFiles - Array of image files
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - PDF result with base64 data
+   */
+  createPDF: async (imageFiles, progressCallback) => {
+    const formData = new FormData();
+    imageFiles.forEach((file) => formData.append('images', file));
+
+    const response = await api.post('/api/ocr/create-pdf', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent) => {
+        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        if (progressCallback) progressCallback(percent);
+      },
+    });
+    
+    return response.data;
+  },
+
+  /**
+   * Translate text (Synchronous)
+   * @param {string} text - Text to translate
+   * @param {string} targetLanguage - Target language code
+   * @param {string} scanId - Optional scan ID
+   * @returns {Promise<object>} - Translation result
+   */
+  translate: async (text, targetLanguage, scanId = null) => {
+    const response = await api.post('/api/ocr/translate', { 
+      text, 
+      targetLanguage,
+      scanId 
     });
     return response.data;
   },
 
-  translate: async (scanId, targetLanguage, text = null) => {
-    const response = await api.post('/api/ocr/translate', { scanId, targetLanguage, text });
-    return response.data;
-  },
-
+  /**
+   * Summarize text (Synchronous)
+   * @param {string} text - Text to summarize
+   * @returns {Promise<object>} - Summary result
+   */
   summarize: async (text) => {
     const response = await api.post('/api/ocr/summarize', { text });
     return response.data;
   },
 
-  // Create PDF from multiple images with enhancement
-  createPDF: async (images, progressCallback) => {
-    const formData = new FormData();
-    
-    // Convert blobs to files if needed
-    for (let i = 0; i < images.length; i++) {
-      const image = images[i];
-      if (image instanceof Blob) {
-        // If it's a blob, create a File from it
-        const file = new File([image], `page_${i + 1}.jpg`, { type: 'image/jpeg' });
-        formData.append('images', file);
-      } else {
-        formData.append('images', image, `page_${i + 1}.jpg`);
-      }
-    }
-
-    const response = await api.post('/api/ocr/create-pdf', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000, // 2 minutes timeout for PDF creation
-      onUploadProgress: (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(percentCompleted);
-      },
-    });
-    return response.data;
-  },
-
-  // Extract text from multiple images
-  extractMultiple: async (images, progressCallback) => {
-    const formData = new FormData();
-    
-    // Convert blobs to files if needed
-    for (let i = 0; i < images.length; i++) {
-      const image = images[i];
-      if (image instanceof Blob) {
-        const file = new File([image], `page_${i + 1}.jpg`, { type: 'image/jpeg' });
-        formData.append('images', file);
-      } else {
-        formData.append('images', image, `page_${i + 1}.jpg`);
-      }
-    }
-
-    const response = await api.post('/api/ocr/extract-multiple', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 180000, // 3 minutes timeout for OCR
-      onUploadProgress: (progressEvent) => {
-        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(percentCompleted);
-      },
-    });
-    return response.data;
-  },
-
+  /**
+   * Get scan history
+   */
   getScanHistory: async (page = 1, limit = 10) => {
     const response = await api.get(`/api/ocr/history?page=${page}&limit=${limit}`);
     return response.data;
   },
 
+  /**
+   * Get single scan
+   */
   getScan: async (scanId) => {
     const response = await api.get(`/api/ocr/scan/${scanId}`);
     return response.data;
   },
 
+  /**
+   * Delete scan
+   */
   deleteScan: async (scanId) => {
     const response = await api.delete(`/api/ocr/scan/${scanId}`);
+    return response.data;
+  },
+
+  /**
+   * Get remaining scans
+   */
+  getRemaining: async () => {
+    const response = await api.get('/api/ocr/remaining');
     return response.data;
   },
 };
@@ -333,12 +474,102 @@ export const pdfAPI = {
 
 // ==================== HELPER FUNCTIONS ====================
 
+/**
+ * Download file from base64 data
+ */
 export const downloadFile = (base64Data, filename, mimeType = 'application/pdf') => {
   const linkSource = `data:${mimeType};base64,${base64Data}`;
   const downloadLink = document.createElement('a');
   downloadLink.href = linkSource;
   downloadLink.download = filename;
   downloadLink.click();
+};
+
+/**
+ * Download blob as file
+ */
+export const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const downloadLink = document.createElement('a');
+  downloadLink.href = url;
+  downloadLink.download = filename;
+  downloadLink.click();
+  URL.revokeObjectURL(url);
+};
+
+/**
+ * Convert text to Word document (DOCX)
+ */
+export const exportToWord = (text, filename = 'document.docx') => {
+  // Simple DOCX format using HTML conversion
+  const html = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' 
+          xmlns:w='urn:schemas-microsoft-com:office:word'>
+    <head>
+      <meta charset="utf-8">
+      <title>Document</title>
+    </head>
+    <body>
+      <pre style="font-family: Arial, sans-serif; font-size: 12pt; white-space: pre-wrap;">${text}</pre>
+    </body>
+    </html>
+  `;
+  
+  const blob = new Blob([html], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  downloadBlob(blob, filename);
+};
+
+/**
+ * Convert text/tables to Excel (CSV format)
+ */
+export const exportToExcel = (text, tables = [], filename = 'document.xlsx') => {
+  let csvContent = '';
+  
+  // If tables exist, export them
+  if (tables && tables.length > 0) {
+    tables.forEach((table, index) => {
+      if (index > 0) csvContent += '\n\n';
+      csvContent += `Table ${index + 1}\n`;
+      
+      if (table.data && Array.isArray(table.data)) {
+        table.data.forEach(row => {
+          if (Array.isArray(row)) {
+            csvContent += row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',') + '\n';
+          }
+        });
+      }
+    });
+  } else {
+    // Export text as single cell
+    csvContent = text;
+  }
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(blob, filename.replace('.xlsx', '.csv'));
+};
+
+/**
+ * Export text to plain text file
+ */
+export const exportToText = (text, filename = 'document.txt') => {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8;' });
+  downloadBlob(blob, filename);
+};
+
+/**
+ * Export to PDF using the API
+ */
+export const exportToPDF = async (imageFiles, filename = 'document.pdf', progressCallback) => {
+  try {
+    const result = await ocrAPI.createPDF(imageFiles, progressCallback);
+    if (result.success && result.pdf) {
+      downloadFile(result.pdf, filename, 'application/pdf');
+      return { success: true };
+    }
+    return { success: false, error: 'Failed to create PDF' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 };
 
 export const getToken = () => localStorage.getItem('token');
