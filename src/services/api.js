@@ -79,59 +79,11 @@ export const authAPI = {
   },
 };
 
-// ==================== OCR APIs (with Queue Support) ====================
-
-/**
- * Poll for job result with exponential backoff
- * @param {string} jobId - Job ID to poll
- * @param {function} onProgress - Progress callback (0-100)
- * @param {number} maxAttempts - Maximum polling attempts
- * @param {number} initialDelay - Initial delay in ms
- * @returns {Promise<object>} - Final result
- */
-async function pollJobResult(jobId, onProgress, maxAttempts = 60, initialDelay = 500) {
-  let attempts = 0;
-  let delay = initialDelay;
-  
-  while (attempts < maxAttempts) {
-    try {
-      const response = await api.get(`/api/ocr/result/${jobId}`);
-      const data = response.data;
-      
-      // Update progress
-      if (onProgress && data.progress) {
-        onProgress(data.progress);
-      }
-      
-      // Check if completed or failed
-      if (data.status === 'completed') {
-        if (onProgress) onProgress(100);
-        return data;
-      } else if (data.status === 'failed') {
-        throw new Error(data.error || 'Processing failed');
-      }
-      
-      // Still processing, wait and retry
-      await new Promise(resolve => setTimeout(resolve, delay));
-      
-      // Exponential backoff (max 3 seconds)
-      delay = Math.min(delay * 1.2, 3000);
-      attempts++;
-      
-    } catch (error) {
-      if (error.response?.status === 404) {
-        throw new Error('Job not found');
-      }
-      throw error;
-    }
-  }
-  
-  throw new Error('Processing timeout. Please try again.');
-}
+// ==================== OCR APIs ====================
 
 export const ocrAPI = {
   /**
-   * Extract text from image (Queued)
+   * Extract text from image
    * @param {File} imageFile - Image file to process
    * @param {function} progressCallback - Progress callback (0-100)
    * @returns {Promise<object>} - OCR result
@@ -140,38 +92,21 @@ export const ocrAPI = {
     const formData = new FormData();
     formData.append('image', imageFile);
 
-    // Upload and get jobId
-    if (progressCallback) progressCallback(5);
-    
     const response = await api.post('/api/ocr/extract', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // 2 min timeout for AI processing
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(Math.min(percent * 0.2, 20)); // 0-20% for upload
+        if (progressCallback) progressCallback(Math.min(percent * 0.3, 30)); // 0-30% for upload
       },
     });
     
-    // If queued, poll for result
-    if (response.data.queued && response.data.jobId) {
-      if (progressCallback) progressCallback(25);
-      
-      const result = await pollJobResult(
-        response.data.jobId,
-        (progress) => {
-          // Map worker progress (0-100) to our range (25-100)
-          if (progressCallback) progressCallback(25 + (progress * 0.75));
-        }
-      );
-      
-      return result;
-    }
-    
-    // Direct response (fallback for non-queued)
+    if (progressCallback) progressCallback(100);
     return response.data;
   },
 
   /**
-   * Extract text with table detection (Queued)
+   * Extract text with table detection
    * @param {File} imageFile - Image file to process
    * @param {function} progressCallback - Progress callback (0-100)
    * @returns {Promise<object>} - OCR result with tables
@@ -180,34 +115,21 @@ export const ocrAPI = {
     const formData = new FormData();
     formData.append('image', imageFile);
 
-    if (progressCallback) progressCallback(5);
-    
     const response = await api.post('/api/ocr/extract-with-tables', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000, // 3 min timeout
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(Math.min(percent * 0.2, 20));
+        if (progressCallback) progressCallback(Math.min(percent * 0.3, 30));
       },
     });
     
-    if (response.data.queued && response.data.jobId) {
-      if (progressCallback) progressCallback(25);
-      
-      const result = await pollJobResult(
-        response.data.jobId,
-        (progress) => {
-          if (progressCallback) progressCallback(25 + (progress * 0.75));
-        }
-      );
-      
-      return result;
-    }
-    
+    if (progressCallback) progressCallback(100);
     return response.data;
   },
 
   /**
-   * Extract text from multiple images (Queued)
+   * Extract text from multiple images
    * @param {File[]} imageFiles - Array of image files
    * @param {function} progressCallback - Progress callback (0-100)
    * @returns {Promise<object>} - OCR result with pages
@@ -216,40 +138,16 @@ export const ocrAPI = {
     const formData = new FormData();
     imageFiles.forEach((file) => formData.append('images', file));
 
-    if (progressCallback) progressCallback(5);
-    
     const response = await api.post('/api/ocr/extract-multiple', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000, // 5 min timeout for multiple images
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(Math.min(percent * 0.2, 20));
+        if (progressCallback) progressCallback(Math.min(percent * 0.3, 30));
       },
     });
     
-    if (response.data.queued && response.data.jobId) {
-      if (progressCallback) progressCallback(25);
-      
-      const result = await pollJobResult(
-        response.data.jobId,
-        (progress) => {
-          if (progressCallback) progressCallback(25 + (progress * 0.75));
-        },
-        120 // More attempts for multiple images
-      );
-      
-      return result;
-    }
-    
-    return response.data;
-  },
-
-  /**
-   * Get job result directly
-   * @param {string} jobId - Job ID
-   * @returns {Promise<object>} - Job status and result
-   */
-  getJobResult: async (jobId) => {
-    const response = await api.get(`/api/ocr/result/${jobId}`);
+    if (progressCallback) progressCallback(100);
     return response.data;
   },
 
@@ -265,6 +163,7 @@ export const ocrAPI = {
 
     const response = await api.post('/api/ocr/create-pdf', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         if (progressCallback) progressCallback(percent);
