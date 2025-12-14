@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { ocrAPI } from '../services/api';
@@ -10,7 +10,6 @@ import {
   Download,
   Copy,
   FileText,
-  Zap,
   CheckCircle,
   AlertCircle,
   Globe,
@@ -19,18 +18,8 @@ import {
   Sparkles,
   Clipboard,
   Plus,
-  Trash2,
-  FileImage,
   ChevronLeft,
-  ChevronRight,
-  RotateCcw,
-  RotateCw,
-  Crop,
   Check,
-  Move,
-  Type,
-  Highlighter,
-  Palette,
   Table,
   FileDown,
   MessageSquare,
@@ -42,19 +31,15 @@ const Scanner = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   
-  // Check if user came with files from landing page
   const initialFiles = location.state?.files || [];
-  const initialMode = searchParams.get('mode'); // 'tables' if user clicked table extractor
+  const initialMode = searchParams.get('mode');
   
   // State management
   const [mode, setMode] = useState('select');
-  const [extractionType, setExtractionType] = useState(initialMode === 'tables' ? 'tables' : null); // 'text' or 'tables'
+  const [extractionType, setExtractionType] = useState(initialMode === 'tables' ? 'tables' : null);
   const [stream, setStream] = useState(null);
   const [capturedImages, setCapturedImages] = useState([]);
-  const [currentPreviewIndex, setCurrentPreviewIndex] = useState(0);
-  const [uploadedFile, setUploadedFile] = useState(null);
   const [processing, setProcessing] = useState(false);
-  const [processingStatus, setProcessingStatus] = useState('');
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -74,25 +59,12 @@ const Scanner = () => {
     'Almost done...',
   ];
   
-  // Image Editor State
-  const [editingIndex, setEditingIndex] = useState(null);
-  const [editingImage, setEditingImage] = useState(null);
-  const [rotation, setRotation] = useState(0);
-  const [cropArea, setCropArea] = useState({ x: 0, y: 0, width: 100, height: 100 });
-  const [editorTool, setEditorTool] = useState(null);
-  const [textAnnotations, setTextAnnotations] = useState([]);
-  const [highlights, setHighlights] = useState([]);
-  const [textColor, setTextColor] = useState('#FF0000');
-  const [highlightColor, setHighlightColor] = useState('rgba(255, 255, 0, 0.4)');
-  
   // Refs
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
-  const dropZoneRef = useRef(null);
   
   const isNative = Capacitor.isNativePlatform();
-  const canScan = isAuthenticated ? (user?.canScan?.() ?? true) : true;
 
   // Detect mobile device
   useEffect(() => {
@@ -101,7 +73,6 @@ const Scanner = () => {
                      window.innerWidth <= 768;
       setIsMobile(mobile);
     };
-    
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -115,7 +86,7 @@ const Scanner = () => {
     }
   }, []);
 
-  // Cleanup camera on unmount
+  // Cleanup camera
   useEffect(() => {
     return () => {
       if (stream) {
@@ -124,13 +95,14 @@ const Scanner = () => {
     };
   }, [stream]);
 
-  // Typing animation effect
+  // Typing animation
   useEffect(() => {
     if (mode !== 'processing') return;
     
     let messageIndex = 0;
     let charIndex = 0;
     let isDeleting = false;
+    let timeoutId;
     
     const typeEffect = () => {
       const currentMessage = typingMessages[messageIndex];
@@ -141,7 +113,7 @@ const Scanner = () => {
         
         if (charIndex === currentMessage.length) {
           isDeleting = true;
-          setTimeout(typeEffect, 1500);
+          timeoutId = setTimeout(typeEffect, 1500);
           return;
         }
       } else {
@@ -154,27 +126,25 @@ const Scanner = () => {
         }
       }
       
-      setTimeout(typeEffect, isDeleting ? 30 : 50);
+      timeoutId = setTimeout(typeEffect, isDeleting ? 30 : 50);
     };
     
-    const timer = setTimeout(typeEffect, 100);
-    return () => clearTimeout(timer);
+    timeoutId = setTimeout(typeEffect, 100);
+    return () => clearTimeout(timeoutId);
   }, [mode]);
 
-  // Handle paste from clipboard
+  // Handle paste
   useEffect(() => {
     const handlePaste = async (e) => {
       if (mode !== 'select' && mode !== 'choose-extraction') return;
       
-      const clipboardData = e.clipboardData || window.clipboardData;
-      if (!clipboardData) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
       
-      const items = clipboardData.items;
       for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.type.indexOf('image') !== -1) {
+        if (items[i].type.indexOf('image') !== -1) {
           e.preventDefault();
-          const file = item.getAsFile();
+          const file = items[i].getAsFile();
           if (file) {
             setCapturedImages(prev => [...prev, file]);
             setMode('choose-extraction');
@@ -188,20 +158,16 @@ const Scanner = () => {
     return () => window.removeEventListener('paste', handlePaste);
   }, [mode]);
 
-  // Get image URL helper
+  // Helpers
   const getImageUrl = (img) => {
     if (typeof img === 'string') return img;
     return URL.createObjectURL(img);
   };
 
   // File handling
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    
-    const validFiles = files.filter(f => 
-      f.type.startsWith('image/') || f.type === 'application/pdf'
-    );
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
     
     if (validFiles.length > 0) {
       setCapturedImages(prev => [...prev, ...validFiles]);
@@ -210,15 +176,13 @@ const Scanner = () => {
     }
   };
 
-  // Drag and drop handlers
+  // Drag and drop
   const handleDragOver = (e) => {
     e.preventDefault();
     setIsDragging(true);
   };
 
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
+  const handleDragLeave = () => setIsDragging(false);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -233,19 +197,17 @@ const Scanner = () => {
     }
   };
 
-  // Camera functions
+  // Camera
   const startCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
       });
       setStream(mediaStream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
+      if (videoRef.current) videoRef.current.srcObject = mediaStream;
       setMode('camera');
     } catch (err) {
-      setError('Camera access denied. Please enable camera permissions.');
+      setError('Camera access denied');
     }
   };
 
@@ -256,9 +218,7 @@ const Scanner = () => {
     const canvas = canvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0);
+    canvas.getContext('2d').drawImage(video, 0, 0);
     
     canvas.toBlob((blob) => {
       setCapturedImages(prev => [...prev, blob]);
@@ -285,9 +245,8 @@ const Scanner = () => {
     setMode('select');
   };
 
-  // ==================== EXTRACTION FUNCTIONS ====================
+  // ==================== EXTRACTION ====================
   
-  // Extract TEXT only (Google Vision - Fast)
   const extractText = async () => {
     if (capturedImages.length === 0) return;
     
@@ -297,7 +256,6 @@ const Scanner = () => {
     setProgress(0);
     setError('');
     
-    // Smooth progress animation
     let fakeProgress = 0;
     const progressInterval = setInterval(() => {
       fakeProgress += Math.random() * 15;
@@ -326,7 +284,6 @@ const Scanner = () => {
         throw new Error(response.error || 'Extraction failed');
       }
     } catch (err) {
-      console.error('OCR error:', err);
       setError(err.message || 'Failed to extract text');
       setMode('choose-extraction');
     } finally {
@@ -336,7 +293,6 @@ const Scanner = () => {
     }
   };
 
-  // Extract TABLES only (OpenAI - AI-powered)
   const extractTables = async () => {
     if (capturedImages.length === 0) return;
     
@@ -346,7 +302,6 @@ const Scanner = () => {
     setProgress(0);
     setError('');
     
-    // Smooth progress animation
     let fakeProgress = 0;
     const progressInterval = setInterval(() => {
       fakeProgress += Math.random() * 8;
@@ -362,10 +317,7 @@ const Scanner = () => {
       
       if (response.success) {
         setResult({
-          ocr: {
-            text: '',
-            confidence: 0,
-          },
+          ocr: { text: '', confidence: 0 },
           tables: response.tables || [],
           tableCount: response.tableCount || response.tables?.length || 0
         });
@@ -374,7 +326,6 @@ const Scanner = () => {
         throw new Error(response.error || 'Table extraction failed');
       }
     } catch (err) {
-      console.error('Table extraction error:', err);
       setError(err.message || 'Failed to extract tables');
       setMode('choose-extraction');
     } finally {
@@ -405,37 +356,23 @@ const Scanner = () => {
         setError(response.message || 'Translation failed');
       }
     } catch (err) {
-      console.error('Translation error:', err);
       setError(err.response?.data?.message || 'Failed to translate');
     } finally {
       setTranslating(false);
     }
   };
 
-  // ==================== AI EXPLAIN (Summary in translated language) ====================
+  // ==================== AI EXPLAIN ====================
   
   const generateExplanation = async () => {
-    // Use translated text if available, otherwise original
     const textToExplain = result?.translation?.translatedText || result?.ocr?.text;
     if (!textToExplain) return;
-    
-    // Require translation first
-    if (!result?.translation?.translatedText && selectedLanguage) {
-      setError('Please translate the text first before asking for explanation');
-      return;
-    }
     
     setSummarizing(true);
     setError('');
     
     try {
-      // Determine language for explanation
-      const targetLang = result?.translation?.targetLanguage || 'en';
-      
-      const response = await ocrAPI.summarize(textToExplain, {
-        style: 'detailed',
-        language: targetLang
-      });
+      const response = await ocrAPI.summarize(textToExplain);
       
       if (response.success) {
         setSummary(response.summary);
@@ -443,23 +380,21 @@ const Scanner = () => {
         setError(response.message || 'Failed to generate explanation');
       }
     } catch (err) {
-      console.error('Explanation error:', err);
       setError(err.response?.data?.message || 'Failed to generate explanation');
     } finally {
       setSummarizing(false);
     }
   };
 
-  // ==================== EXPORT FUNCTIONS ====================
+  // ==================== EXPORT ====================
   
   const copyText = async () => {
     const text = result?.translation?.translatedText || result?.ocr?.text;
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      // Show success feedback
     } catch (err) {
-      setError('Failed to copy text');
+      setError('Failed to copy');
     }
   };
 
@@ -480,32 +415,14 @@ const Scanner = () => {
     const text = result?.ocr?.text || '';
     const translatedText = result?.translation?.translatedText || '';
     
-    const htmlContent = `
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
-      <head><meta charset="utf-8"><title>AngelPDF Export</title></head>
-      <body style="font-family: Arial, sans-serif;">
-        <h1 style="color: #667eea;">AngelPDF Document</h1>
-        
-        <h2>Extracted Text</h2>
-        <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; white-space: pre-wrap;">${text}</div>
-        
-        ${translatedText ? `
-        <h2 style="margin-top: 30px;">Translation</h2>
-        <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; white-space: pre-wrap;">${translatedText}</div>
-        ` : ''}
-        
-        ${summary ? `
-        <h2 style="margin-top: 30px;">AI Explanation</h2>
-        <div style="background: #e8f5e9; padding: 15px; border-radius: 8px; white-space: pre-wrap;">${summary}</div>
-        ` : ''}
-        
-        <hr style="margin-top: 40px;"/>
-        <p style="color: #999; font-size: 10px;">Powered by AngelPDF</p>
-      </body>
-      </html>
-    `;
+    const html = `<html><head><meta charset="utf-8"></head><body style="font-family:Arial;">
+      <h1>AngelPDF Document</h1>
+      <h2>Extracted Text</h2><pre>${text}</pre>
+      ${translatedText ? `<h2>Translation</h2><pre>${translatedText}</pre>` : ''}
+      ${summary ? `<h2>AI Explanation</h2><pre>${summary}</pre>` : ''}
+    </body></html>`;
     
-    const blob = new Blob([htmlContent], { type: 'application/msword' });
+    const blob = new Blob([html], { type: 'application/msword' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -514,7 +431,6 @@ const Scanner = () => {
     URL.revokeObjectURL(url);
   };
 
-  // Download tables as Excel
   const downloadTablesAsExcel = async () => {
     if (!result?.tables || result.tables.length === 0) return;
     
@@ -522,55 +438,34 @@ const Scanner = () => {
       const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
       const workbook = XLSX.utils.book_new();
       
-      result.tables.forEach((table, tableIndex) => {
-        if (table.data && Array.isArray(table.data) && table.data.length > 0) {
+      result.tables.forEach((table, idx) => {
+        if (table.data?.length > 0) {
           const worksheet = XLSX.utils.aoa_to_sheet(table.data);
-          
-          // Auto-size columns
-          const colWidths = [];
-          table.data.forEach(row => {
-            if (Array.isArray(row)) {
-              row.forEach((cell, colIndex) => {
-                const cellLength = String(cell || '').length;
-                colWidths[colIndex] = Math.max(colWidths[colIndex] || 10, cellLength + 2);
-              });
-            }
-          });
-          worksheet['!cols'] = colWidths.map(w => ({ wch: Math.min(w, 50) }));
-          
-          const sheetName = (table.title || `Table ${tableIndex + 1}`).substring(0, 31);
+          const sheetName = (table.title || `Table ${idx + 1}`).substring(0, 31);
           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
         }
       });
       
-      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-      const blob = new Blob([excelBuffer], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      });
+      const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `tables_${Date.now()}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
-      
-    } catch (error) {
-      console.error('Excel export error:', error);
-      // Fallback to CSV
-      let csvContent = '';
+    } catch (err) {
+      // Fallback CSV
+      let csv = '';
       result.tables.forEach((table, idx) => {
-        if (idx > 0) csvContent += '\n\n';
-        csvContent += `${table.title || `Table ${idx + 1}`}\n`;
-        if (table.data) {
-          table.data.forEach(row => {
-            if (Array.isArray(row)) {
-              csvContent += row.map(cell => `"${String(cell || '').replace(/"/g, '""')}"`).join(',') + '\n';
-            }
-          });
-        }
+        csv += `Table ${idx + 1}\n`;
+        table.data?.forEach(row => {
+          csv += row.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',') + '\n';
+        });
+        csv += '\n';
       });
       
-      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8' });
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -580,18 +475,20 @@ const Scanner = () => {
     }
   };
 
-  // ==================== RENDER FUNCTIONS ====================
-
-  // Render: Mode Selection (Upload/Camera)
+  // ==================== RENDER: SELECT MODE ====================
+  
   const renderModeSelection = () => (
-    <div className="scanner-container">
-      <div className="scanner-header">
-        <h1 className="scanner-title">AI Document Scanner</h1>
-        <p className="scanner-subtitle">Scan multiple pages, create PDF & extract text</p>
+    <div className="max-w-2xl mx-auto">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-500 to-cyan-500 bg-clip-text text-transparent mb-2">
+          AI Document Scanner
+        </h1>
+        <p className="text-gray-400">Scan multiple pages, create PDF & extract text</p>
       </div>
 
       <div
-        className={`upload-zone ${isDragging ? 'dragging' : ''}`}
+        className={`bg-gray-800/50 border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all
+          ${isDragging ? 'border-violet-500 bg-violet-500/10' : 'border-gray-600 hover:border-violet-400'}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -606,177 +503,197 @@ const Scanner = () => {
           className="hidden"
         />
         
-        <div className="upload-icon">
-          <Upload className="w-8 h-8" />
+        <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Upload className="w-8 h-8 text-white" />
         </div>
-        <p className="upload-title">Drag & Drop images here</p>
-        <p className="upload-hint">You can select multiple images at once</p>
         
-        <div className="upload-actions">
-          <button className="btn-primary" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>
+        <p className="text-xl font-semibold text-white mb-2">Drag & Drop images here</p>
+        <p className="text-gray-400 mb-6">You can select multiple images at once</p>
+        
+        <div className="flex justify-center gap-3 mb-6">
+          <button 
+            onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+            className="flex items-center gap-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-violet-500/30 transition-all"
+          >
             <Upload className="w-5 h-5" />
-            <span>Browse Files</span>
+            Browse Files
           </button>
           
-          <button className="btn-secondary" onClick={(e) => { e.stopPropagation(); /* Paste logic */ }}>
+          <button 
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-2 bg-gray-700 text-white px-6 py-3 rounded-xl font-semibold hover:bg-gray-600 transition-all"
+          >
             <Clipboard className="w-5 h-5" />
-            <span>Paste Image</span>
+            Paste Image
           </button>
         </div>
         
-        <p className="supported-formats">Supports: JPG, PNG, WEBP (Max 10MB each)</p>
+        <p className="text-sm text-gray-500">Supports: JPG, PNG, WEBP (Max 10MB each)</p>
       </div>
 
-      {/* Mobile Camera Button */}
       {isMobile && (
-        <button className="camera-btn" onClick={startCamera}>
+        <button 
+          onClick={startCamera}
+          className="w-full mt-4 flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-4 rounded-xl font-semibold"
+        >
           <Camera className="w-6 h-6" />
-          <span>Open Camera</span>
+          Open Camera
         </button>
       )}
     </div>
   );
 
-  // Render: Choose Extraction Type
+  // ==================== RENDER: CHOOSE EXTRACTION ====================
+  
   const renderChooseExtraction = () => (
-    <div className="scanner-container">
-      <div className="scanner-header">
-        <h1 className="scanner-title">What do you want to extract?</h1>
-        <p className="scanner-subtitle">{capturedImages.length} image(s) ready to process</p>
+    <div className="max-w-2xl mx-auto">
+      <div className="text-center mb-8">
+        <h1 className="text-2xl font-bold text-white mb-2">What do you want to extract?</h1>
+        <p className="text-gray-400">{capturedImages.length} image(s) ready to process</p>
       </div>
 
       {/* Image Preview */}
-      <div className="preview-strip">
+      <div className="flex gap-3 overflow-x-auto p-4 bg-gray-800/30 rounded-xl mb-8">
         {capturedImages.map((img, index) => (
-          <div key={index} className="preview-thumb">
-            <img src={getImageUrl(img)} alt={`Page ${index + 1}`} />
-            <span className="thumb-number">{index + 1}</span>
+          <div key={index} className="relative flex-shrink-0 w-20 h-24 rounded-lg overflow-hidden border-2 border-gray-600">
+            <img src={getImageUrl(img)} alt={`Page ${index + 1}`} className="w-full h-full object-cover" />
+            <span className="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-1.5 rounded">
+              {index + 1}
+            </span>
             <button 
-              className="thumb-remove"
               onClick={() => setCapturedImages(prev => prev.filter((_, i) => i !== index))}
+              className="absolute top-1 right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
             >
-              <X className="w-3 h-3" />
+              <X className="w-3 h-3 text-white" />
             </button>
           </div>
         ))}
         <button 
-          className="add-more-btn"
           onClick={() => fileInputRef.current?.click()}
+          className="flex-shrink-0 w-20 h-24 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center text-gray-500 hover:border-violet-400 hover:text-violet-400 transition-all"
         >
-          <Plus className="w-5 h-5" />
+          <Plus className="w-6 h-6" />
         </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={handleFileChange}
-          className="hidden"
-        />
+        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
       </div>
 
       {/* Extraction Options */}
-      <div className="extraction-options">
-        <button className="extraction-card" onClick={extractText}>
-          <div className="extraction-icon text-icon">
-            <FileText className="w-8 h-8" />
+      <div className="space-y-4">
+        <button 
+          onClick={extractText}
+          className="w-full flex items-center gap-5 bg-gray-800/50 border border-gray-700 rounded-2xl p-6 text-left hover:border-violet-500 hover:bg-gray-800 transition-all group"
+        >
+          <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-xl flex items-center justify-center flex-shrink-0">
+            <FileText className="w-8 h-8 text-white" />
           </div>
-          <div className="extraction-info">
-            <h3>Extract Text</h3>
-            <p>Fast text extraction using AI OCR</p>
-            <span className="extraction-badge fast">⚡ ~1 second</span>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-white mb-1">Extract Text</h3>
+            <p className="text-gray-400 text-sm mb-2">Fast text extraction using AI OCR</p>
+            <span className="inline-block px-3 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">
+              ⚡ ~1 second
+            </span>
           </div>
-          <ArrowRight className="arrow-icon" />
+          <ArrowRight className="w-5 h-5 text-gray-500 group-hover:text-violet-400 group-hover:translate-x-1 transition-all" />
         </button>
 
-        <button className="extraction-card" onClick={extractTables}>
-          <div className="extraction-icon table-icon">
-            <Table className="w-8 h-8" />
+        <button 
+          onClick={extractTables}
+          className="w-full flex items-center gap-5 bg-gray-800/50 border border-gray-700 rounded-2xl p-6 text-left hover:border-cyan-500 hover:bg-gray-800 transition-all group"
+        >
+          <div className="w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Table className="w-8 h-8 text-white" />
           </div>
-          <div className="extraction-info">
-            <h3>Extract Tables</h3>
-            <p>AI-powered table detection & Excel export</p>
-            <span className="extraction-badge ai">🤖 AI Processing</span>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-white mb-1">Extract Tables</h3>
+            <p className="text-gray-400 text-sm mb-2">AI-powered table detection & Excel export</p>
+            <span className="inline-block px-3 py-1 bg-violet-500/20 text-violet-400 text-xs rounded-full">
+              🤖 AI Processing
+            </span>
           </div>
-          <ArrowRight className="arrow-icon" />
+          <ArrowRight className="w-5 h-5 text-gray-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-all" />
         </button>
       </div>
 
-      <button className="btn-back" onClick={startNewScan}>
+      <button onClick={startNewScan} className="flex items-center gap-2 text-gray-400 hover:text-violet-400 mt-6">
         <ChevronLeft className="w-4 h-4" />
-        <span>Start Over</span>
+        Start Over
       </button>
     </div>
   );
 
-  // Render: Processing with typing animation
+  // ==================== RENDER: PROCESSING ====================
+  
   const renderProcessing = () => (
-    <div className="processing-container">
-      <div className="processing-card">
-        <div className="processing-animation">
-          <div className="spinner"></div>
-        </div>
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="bg-gray-800/50 border border-gray-700 rounded-3xl p-12 text-center max-w-md w-full">
+        <div className="w-16 h-16 border-4 border-violet-500/30 border-t-violet-500 rounded-full animate-spin mx-auto mb-6"></div>
         
-        <h2 className="processing-title">
+        <h2 className="text-xl font-semibold text-white mb-4">
           {extractionType === 'tables' ? 'Extracting Tables...' : 'Extracting Text...'}
         </h2>
         
-        <p className="typing-text">
-          {typingText}<span className="cursor">|</span>
+        <p className="text-gray-400 h-6 mb-6">
+          {typingText}<span className="animate-pulse text-violet-400">|</span>
         </p>
         
-        <div className="progress-bar">
-          <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+        <div className="h-2 bg-gray-700 rounded-full overflow-hidden mb-3">
+          <div 
+            className="h-full bg-gradient-to-r from-violet-500 to-cyan-500 rounded-full transition-all duration-300"
+            style={{ width: `${progress}%` }}
+          ></div>
         </div>
-        <p className="progress-text">{progress}%</p>
+        <p className="text-sm text-gray-500">{progress}%</p>
       </div>
     </div>
   );
 
-  // Render: Results
+  // ==================== RENDER: RESULTS ====================
+  
   const renderResults = () => (
-    <div className="results-container">
+    <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="results-header">
-        <h2>
-          <CheckCircle className="w-6 h-6 text-green-500" />
-          <span>Extraction Complete</span>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="flex items-center gap-3 text-2xl font-bold text-white">
+          <CheckCircle className="w-7 h-7 text-green-500" />
+          Extraction Complete
         </h2>
-        <button className="btn-primary" onClick={startNewScan}>
+        <button 
+          onClick={startNewScan}
+          className="flex items-center gap-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold"
+        >
           <Camera className="w-5 h-5" />
-          <span>New Scan</span>
+          New Scan
         </button>
       </div>
 
       {/* TEXT Results */}
       {extractionType === 'text' && result?.ocr?.text && (
-        <div className="result-card">
-          <div className="card-header">
-            <h3>
-              <FileText className="w-5 h-5" />
-              <span>Extracted Text</span>
+        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
+              <FileText className="w-5 h-5 text-violet-400" />
+              Extracted Text
             </h3>
-            <span className="confidence-badge">{result.ocr.confidence}% accuracy</span>
+            <span className="px-3 py-1 bg-green-500/20 text-green-400 text-sm rounded-full">
+              {result.ocr.confidence}% accuracy
+            </span>
           </div>
           
           <textarea
-            className="text-output"
             value={result.ocr.text}
             readOnly
+            className="w-full h-48 bg-gray-900/50 border border-gray-600 rounded-xl p-4 text-gray-200 font-mono text-sm resize-y focus:outline-none focus:border-violet-500"
           />
           
-          <div className="export-buttons">
-            <button onClick={copyText} className="btn-export">
-              <Copy className="w-4 h-4" />
-              <span>Copy</span>
+          <div className="flex gap-2 mt-4 flex-wrap">
+            <button onClick={copyText} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-all">
+              <Copy className="w-4 h-4" /> Copy
             </button>
-            <button onClick={downloadText} className="btn-export">
-              <Download className="w-4 h-4" />
-              <span>TXT</span>
+            <button onClick={downloadText} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-all">
+              <Download className="w-4 h-4" /> TXT
             </button>
-            <button onClick={downloadAsWord} className="btn-export">
-              <FileText className="w-4 h-4" />
-              <span>Word</span>
+            <button onClick={downloadAsWord} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-all">
+              <FileText className="w-4 h-4" /> Word
             </button>
           </div>
         </div>
@@ -784,31 +701,29 @@ const Scanner = () => {
 
       {/* TABLE Results */}
       {extractionType === 'tables' && result?.tables?.length > 0 && (
-        <div className="result-card">
-          <div className="card-header">
-            <h3>
-              <Table className="w-5 h-5" />
-              <span>Extracted Tables ({result.tables.length})</span>
-            </h3>
-          </div>
+        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-4">
+            <Table className="w-5 h-5 text-cyan-400" />
+            Extracted Tables ({result.tables.length})
+          </h3>
           
           {result.tables.map((table, idx) => (
-            <div key={idx} className="table-preview">
-              <h4>{table.title || `Table ${idx + 1}`}</h4>
-              <div className="table-wrapper">
-                <table>
+            <div key={idx} className="mb-4">
+              <h4 className="text-gray-400 text-sm mb-2">{table.title || `Table ${idx + 1}`}</h4>
+              <div className="overflow-x-auto border border-gray-600 rounded-lg">
+                <table className="w-full text-sm">
                   <thead>
-                    <tr>
+                    <tr className="bg-violet-500/20">
                       {table.data?.[0]?.map((header, i) => (
-                        <th key={i}>{header}</th>
+                        <th key={i} className="px-4 py-3 text-left text-violet-300 font-semibold">{header}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {table.data?.slice(1).map((row, rowIdx) => (
-                      <tr key={rowIdx}>
+                      <tr key={rowIdx} className="border-t border-gray-700 hover:bg-gray-700/30">
                         {row.map((cell, cellIdx) => (
-                          <td key={cellIdx}>{cell}</td>
+                          <td key={cellIdx} className="px-4 py-3 text-gray-300">{cell}</td>
                         ))}
                       </tr>
                     ))}
@@ -818,28 +733,29 @@ const Scanner = () => {
             </div>
           ))}
           
-          <button onClick={downloadTablesAsExcel} className="btn-primary full-width">
+          <button 
+            onClick={downloadTablesAsExcel}
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold mt-4"
+          >
             <FileSpreadsheet className="w-5 h-5" />
-            <span>Download as Excel</span>
+            Download as Excel
           </button>
         </div>
       )}
 
-      {/* TRANSLATION Section - Only for text extraction */}
+      {/* TRANSLATION - Only for text */}
       {extractionType === 'text' && result?.ocr?.text && (
-        <div className="result-card">
-          <div className="card-header">
-            <h3>
-              <Globe className="w-5 h-5" />
-              <span>Translate</span>
-            </h3>
-          </div>
+        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-4">
+            <Globe className="w-5 h-5 text-cyan-400" />
+            Translate
+          </h3>
           
-          <div className="translate-controls">
+          <div className="flex gap-3 mb-4">
             <select
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="language-select"
+              className="flex-1 bg-gray-900 border border-gray-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-violet-500"
             >
               <option value="">Select language...</option>
               <optgroup label="Indian Languages">
@@ -849,150 +765,109 @@ const Scanner = () => {
                 <option value="mr">Marathi (मराठी)</option>
                 <option value="ta">Tamil (தமிழ்)</option>
                 <option value="gu">Gujarati (ગુજરાતી)</option>
-                <option value="kn">Kannada (ಕನ್ನಡ)</option>
-                <option value="ml">Malayalam (മലയാളം)</option>
-                <option value="pa">Punjabi (ਪੰਜਾਬੀ)</option>
               </optgroup>
-              <optgroup label="European Languages">
-                <option value="en">English</option>
-                <option value="es">Spanish (Español)</option>
-                <option value="fr">French (Français)</option>
-                <option value="de">German (Deutsch)</option>
-                <option value="it">Italian (Italiano)</option>
-                <option value="pt">Portuguese (Português)</option>
-                <option value="ru">Russian (Русский)</option>
+              <optgroup label="European">
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
               </optgroup>
-              <optgroup label="Asian Languages">
-                <option value="zh">Chinese (中文)</option>
-                <option value="ja">Japanese (日本語)</option>
-                <option value="ko">Korean (한국어)</option>
-                <option value="th">Thai (ไทย)</option>
-                <option value="vi">Vietnamese (Tiếng Việt)</option>
-              </optgroup>
-              <optgroup label="Middle Eastern">
-                <option value="ar">Arabic (العربية)</option>
-                <option value="fa">Persian (فارسی)</option>
-                <option value="he">Hebrew (עברית)</option>
-                <option value="tr">Turkish (Türkçe)</option>
+              <optgroup label="Asian">
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
               </optgroup>
             </select>
             
             <button
               onClick={translateText}
               disabled={!selectedLanguage || translating}
-              className="btn-primary"
+              className="flex items-center gap-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-semibold disabled:opacity-50"
             >
-              {translating ? (
-                <>
-                  <Loader className="w-5 h-5 animate-spin" />
-                  <span>Translating...</span>
-                </>
-              ) : (
-                <>
-                  <Globe className="w-5 h-5" />
-                  <span>Translate</span>
-                </>
-              )}
+              {translating ? <Loader className="w-5 h-5 animate-spin" /> : <Globe className="w-5 h-5" />}
+              {translating ? 'Translating...' : 'Translate'}
             </button>
           </div>
           
           {result?.translation?.translatedText && (
-            <div className="translation-result">
-              <p className="translation-label">
+            <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4">
+              <p className="flex items-center gap-2 text-cyan-400 text-sm mb-2">
                 <CheckCircle className="w-4 h-4" />
                 Translated to {result.translation.targetLanguage}
               </p>
-              <div className="translation-text">
-                {result.translation.translatedText}
-              </div>
+              <p className="text-gray-200 whitespace-pre-wrap">{result.translation.translatedText}</p>
             </div>
           )}
         </div>
       )}
 
-      {/* AI EXPLAIN Section - Only enabled after translation */}
+      {/* AI EXPLAIN - Only for text, after translation */}
       {extractionType === 'text' && result?.ocr?.text && (
-        <div className="result-card">
-          <div className="card-header">
-            <h3>
-              <MessageSquare className="w-5 h-5" />
-              <span>Ask AngelPDF to Explain</span>
-            </h3>
-          </div>
+        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-4">
+            <MessageSquare className="w-5 h-5 text-amber-400" />
+            Ask AngelPDF to Explain
+          </h3>
           
-          <p className="explain-hint">
+          <p className="text-gray-400 text-sm mb-4">
             Get a detailed explanation with key points
-            {!result?.translation?.translatedText && selectedLanguage && 
-              ' (Translate first to get explanation in your language)'}
+            {selectedLanguage && !result?.translation?.translatedText && ' (Translate first for explanation in your language)'}
           </p>
           
           <button
             onClick={generateExplanation}
-            disabled={summarizing || (!result?.translation?.translatedText && selectedLanguage)}
-            className="btn-secondary full-width"
+            disabled={summarizing || (selectedLanguage && !result?.translation?.translatedText)}
+            className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-xl font-semibold disabled:opacity-50 transition-all"
           >
-            {summarizing ? (
-              <>
-                <Loader className="w-5 h-5 animate-spin" />
-                <span>Generating explanation...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-5 h-5" />
-                <span>Explain Content</span>
-              </>
-            )}
+            {summarizing ? <Loader className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+            {summarizing ? 'Generating...' : 'Explain Content'}
           </button>
           
           {summary && (
-            <div className="explanation-result">
-              <div className="explanation-text">
-                {summary}
-              </div>
+            <div className="bg-violet-500/10 border border-violet-500/30 rounded-xl p-4 mt-4">
+              <p className="text-gray-200 whitespace-pre-wrap leading-relaxed">{summary}</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Error Display */}
+      {/* Error */}
       {error && (
-        <div className="error-card">
-          <AlertCircle className="w-5 h-5" />
+        <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
           <p>{error}</p>
         </div>
       )}
     </div>
   );
 
-  // Render: Camera
+  // ==================== RENDER: CAMERA ====================
+  
   const renderCamera = () => (
-    <div className="camera-container">
-      <video ref={videoRef} autoPlay playsInline className="camera-video" />
+    <div className="fixed inset-0 bg-black z-50">
+      <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
       <canvas ref={canvasRef} className="hidden" />
       
-      <div className="camera-controls">
-        <button className="camera-close" onClick={stopCamera}>
-          <X className="w-6 h-6" />
+      <div className="absolute bottom-10 left-0 right-0 flex justify-center items-center gap-10">
+        <button onClick={stopCamera} className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+          <X className="w-6 h-6 text-white" />
         </button>
         
-        <button className="capture-btn" onClick={capturePhoto}>
-          <div className="capture-inner"></div>
+        <button onClick={capturePhoto} className="w-20 h-20 bg-white rounded-full p-1">
+          <div className="w-full h-full bg-white rounded-full border-4 border-gray-300"></div>
         </button>
         
-        <div className="captured-count">
-          {capturedImages.length > 0 && (
-            <span>{capturedImages.length} captured</span>
-          )}
+        <div className="w-12 text-center text-white text-sm">
+          {capturedImages.length > 0 && `${capturedImages.length}`}
         </div>
       </div>
       
       {capturedImages.length > 0 && (
         <button 
-          className="done-btn"
           onClick={() => { stopCamera(); setMode('choose-extraction'); }}
+          className="absolute bottom-28 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-violet-500 text-white px-6 py-3 rounded-full font-semibold"
         >
           <Check className="w-5 h-5" />
-          <span>Done ({capturedImages.length})</span>
+          Done ({capturedImages.length})
         </button>
       )}
     </div>
@@ -1001,7 +876,7 @@ const Scanner = () => {
   // ==================== MAIN RENDER ====================
   
   return (
-    <div className="scanner-page dark-mode">
+    <div className="min-h-screen bg-gray-900 text-white p-6 pb-24">
       {mode === 'select' && renderModeSelection()}
       {mode === 'choose-extraction' && renderChooseExtraction()}
       {mode === 'camera' && renderCamera()}
