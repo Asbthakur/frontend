@@ -701,41 +701,67 @@ const Scanner = () => {
 
       {/* TABLE Results */}
       {extractionType === 'tables' && result?.tables?.length > 0 && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
+        <div className="bg-slate-800 border border-slate-600 rounded-2xl p-6 mb-5">
           <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-4">
             <Table className="w-5 h-5 text-cyan-400" />
             Extracted Tables ({result.tables.length})
           </h3>
           
-          {result.tables.map((table, idx) => (
-            <div key={idx} className="mb-4">
-              <h4 className="text-gray-400 text-sm mb-2">{table.title || `Table ${idx + 1}`}</h4>
-              <div className="overflow-x-auto border border-gray-600 rounded-lg">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-violet-500/20">
-                      {table.data?.[0]?.map((header, i) => (
-                        <th key={i} className="px-4 py-3 text-left text-violet-300 font-semibold">{header}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {table.data?.slice(1).map((row, rowIdx) => (
-                      <tr key={rowIdx} className="border-t border-gray-700 hover:bg-gray-700/30">
-                        {row.map((cell, cellIdx) => (
-                          <td key={cellIdx} className="px-4 py-3 text-gray-300">{cell}</td>
+          {result.tables.map((table, idx) => {
+            // Handle different table data structures
+            const tableData = table.data || table.rows || [];
+            const headers = table.headers || (tableData.length > 0 ? tableData[0] : []);
+            const rows = table.headers ? tableData : tableData.slice(1);
+            
+            return (
+              <div key={idx} className="mb-6">
+                <h4 className="text-cyan-300 font-medium mb-3">{table.title || `Table ${idx + 1}`}</h4>
+                <div className="overflow-x-auto rounded-lg border border-slate-500">
+                  <table className="w-full text-sm" style={{ backgroundColor: '#1e293b' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#7c3aed' }}>
+                        {headers.map((header, i) => (
+                          <th key={i} className="px-4 py-3 text-left text-white font-bold border-b border-slate-500">
+                            {String(header || '')}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {rows.map((row, rowIdx) => (
+                        <tr 
+                          key={rowIdx} 
+                          style={{ backgroundColor: rowIdx % 2 === 0 ? '#334155' : '#1e293b' }}
+                        >
+                          {(Array.isArray(row) ? row : []).map((cell, cellIdx) => (
+                            <td 
+                              key={cellIdx} 
+                              className="px-4 py-3 border-b border-slate-600"
+                              style={{ color: '#e2e8f0' }}
+                            >
+                              {String(cell || '')}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                
+                {/* Debug info - remove in production */}
+                <details className="mt-2 text-xs text-gray-500">
+                  <summary className="cursor-pointer">Debug: View raw data</summary>
+                  <pre className="mt-2 p-2 bg-black rounded text-green-400 overflow-auto max-h-40">
+                    {JSON.stringify(table, null, 2)}
+                  </pre>
+                </details>
               </div>
-            </div>
-          ))}
+            );
+          })}
           
           <button 
             onClick={downloadTablesAsExcel}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold mt-4"
+            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold mt-4 hover:opacity-90 transition-opacity"
           >
             <FileSpreadsheet className="w-5 h-5" />
             Download as Excel
