@@ -21,7 +21,6 @@ import {
   ChevronLeft,
   Check,
   Table,
-  FileDown,
   MessageSquare,
   ArrowRight,
 } from 'lucide-react';
@@ -34,7 +33,7 @@ const Scanner = () => {
   const initialFiles = location.state?.files || [];
   const initialMode = searchParams.get('mode');
   
-  // State management
+  // State
   const [mode, setMode] = useState('select');
   const [extractionType, setExtractionType] = useState(initialMode === 'tables' ? 'tables' : null);
   const [stream, setStream] = useState(null);
@@ -49,36 +48,22 @@ const Scanner = () => {
   const [summary, setSummary] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  
-  // Typing animation state
   const [typingText, setTypingText] = useState('');
-  const typingMessages = [
-    'Analyzing your document...',
-    'Extracting content...',
-    'Processing with AI...',
-    'Almost done...',
-  ];
   
-  // Refs
+  const typingMessages = ['Analyzing your document...', 'Extracting content...', 'Processing with AI...', 'Almost done...'];
+  
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
-  
-  const isNative = Capacitor.isNativePlatform();
 
-  // Detect mobile device
+  // Effects
   useEffect(() => {
-    const checkMobile = () => {
-      const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-                     window.innerWidth <= 768;
-      setIsMobile(mobile);
-    };
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Handle files from landing page
   useEffect(() => {
     if (initialFiles.length > 0) {
       setCapturedImages(initialFiles);
@@ -86,771 +71,580 @@ const Scanner = () => {
     }
   }, []);
 
-  // Cleanup camera
   useEffect(() => {
-    return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-    };
+    return () => { if (stream) stream.getTracks().forEach(track => track.stop()); };
   }, [stream]);
 
-  // Typing animation
   useEffect(() => {
     if (mode !== 'processing') return;
-    
-    let messageIndex = 0;
-    let charIndex = 0;
-    let isDeleting = false;
-    let timeoutId;
-    
-    const typeEffect = () => {
-      const currentMessage = typingMessages[messageIndex];
-      
-      if (!isDeleting) {
-        setTypingText(currentMessage.substring(0, charIndex + 1));
-        charIndex++;
-        
-        if (charIndex === currentMessage.length) {
-          isDeleting = true;
-          timeoutId = setTimeout(typeEffect, 1500);
-          return;
-        }
+    let msgIdx = 0, charIdx = 0, deleting = false, timeout;
+    const type = () => {
+      const msg = typingMessages[msgIdx];
+      if (!deleting) {
+        setTypingText(msg.substring(0, charIdx + 1));
+        charIdx++;
+        if (charIdx === msg.length) { deleting = true; timeout = setTimeout(type, 1500); return; }
       } else {
-        setTypingText(currentMessage.substring(0, charIndex - 1));
-        charIndex--;
-        
-        if (charIndex === 0) {
-          isDeleting = false;
-          messageIndex = (messageIndex + 1) % typingMessages.length;
-        }
+        setTypingText(msg.substring(0, charIdx - 1));
+        charIdx--;
+        if (charIdx === 0) { deleting = false; msgIdx = (msgIdx + 1) % typingMessages.length; }
       }
-      
-      timeoutId = setTimeout(typeEffect, isDeleting ? 30 : 50);
+      timeout = setTimeout(type, deleting ? 30 : 50);
     };
-    
-    timeoutId = setTimeout(typeEffect, 100);
-    return () => clearTimeout(timeoutId);
-  }, [mode]);
-
-  // Handle paste
-  useEffect(() => {
-    const handlePaste = async (e) => {
-      if (mode !== 'select' && mode !== 'choose-extraction') return;
-      
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-          e.preventDefault();
-          const file = items[i].getAsFile();
-          if (file) {
-            setCapturedImages(prev => [...prev, file]);
-            setMode('choose-extraction');
-          }
-          break;
-        }
-      }
-    };
-    
-    window.addEventListener('paste', handlePaste);
-    return () => window.removeEventListener('paste', handlePaste);
+    timeout = setTimeout(type, 100);
+    return () => clearTimeout(timeout);
   }, [mode]);
 
   // Helpers
-  const getImageUrl = (img) => {
-    if (typeof img === 'string') return img;
-    return URL.createObjectURL(img);
-  };
+  const getImageUrl = (img) => typeof img === 'string' ? img : URL.createObjectURL(img);
 
-  // File handling
   const handleFileChange = (e) => {
-    const files = Array.from(e.target.files);
-    const validFiles = files.filter(f => f.type.startsWith('image/'));
-    
-    if (validFiles.length > 0) {
-      setCapturedImages(prev => [...prev, ...validFiles]);
+    const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) {
+      setCapturedImages(prev => [...prev, ...files]);
       setMode('choose-extraction');
-      setError('');
     }
   };
-
-  // Drag and drop
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => setIsDragging(false);
 
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    
-    const files = Array.from(e.dataTransfer.files);
-    const validFiles = files.filter(f => f.type.startsWith('image/'));
-    
-    if (validFiles.length > 0) {
-      setCapturedImages(prev => [...prev, ...validFiles]);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) {
+      setCapturedImages(prev => [...prev, ...files]);
       setMode('choose-extraction');
     }
   };
 
-  // Camera
   const startCamera = async () => {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
-      });
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       setStream(mediaStream);
       if (videoRef.current) videoRef.current.srcObject = mediaStream;
       setMode('camera');
-    } catch (err) {
-      setError('Camera access denied');
-    }
+    } catch { setError('Camera access denied'); }
   };
 
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
+    const video = videoRef.current, canvas = canvasRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
-    
-    canvas.toBlob((blob) => {
-      setCapturedImages(prev => [...prev, blob]);
-      setMode('choose-extraction');
-    }, 'image/jpeg', 0.9);
+    canvas.toBlob(blob => { setCapturedImages(prev => [...prev, blob]); setMode('choose-extraction'); }, 'image/jpeg', 0.9);
   };
 
   const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
+    if (stream) { stream.getTracks().forEach(track => track.stop()); setStream(null); }
     setMode('select');
   };
 
-  // Start new scan
   const startNewScan = () => {
-    setCapturedImages([]);
-    setResult(null);
-    setSummary('');
-    setSelectedLanguage('');
-    setError('');
-    setExtractionType(null);
-    setMode('select');
+    setCapturedImages([]); setResult(null); setSummary(''); setSelectedLanguage('');
+    setError(''); setExtractionType(null); setMode('select');
   };
 
-  // ==================== EXTRACTION ====================
-  
+  // Extract Text
   const extractText = async () => {
     if (capturedImages.length === 0) return;
+    setExtractionType('text'); setProcessing(true); setMode('processing'); setProgress(0); setError('');
     
-    setExtractionType('text');
-    setProcessing(true);
-    setMode('processing');
-    setProgress(0);
-    setError('');
-    
-    let fakeProgress = 0;
-    const progressInterval = setInterval(() => {
-      fakeProgress += Math.random() * 15;
-      if (fakeProgress > 90) fakeProgress = 90;
-      setProgress(Math.round(fakeProgress));
-    }, 200);
+    let prog = 0;
+    const interval = setInterval(() => { prog += Math.random() * 15; if (prog > 90) prog = 90; setProgress(Math.round(prog)); }, 200);
     
     try {
       const response = await ocrAPI.extractMultiple(capturedImages);
-      
-      clearInterval(progressInterval);
-      setProgress(100);
-      
+      clearInterval(interval); setProgress(100);
       if (response.success) {
-        setResult({
-          ocr: {
-            text: response.text,
-            confidence: response.confidence || 98,
-            pages: response.pages
-          },
-          tables: [],
-          tableCount: 0
-        });
+        setResult({ ocr: { text: response.text, confidence: response.confidence || 98 }, tables: [], tableCount: 0 });
         setMode('result');
-      } else {
-        throw new Error(response.error || 'Extraction failed');
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to extract text');
-      setMode('choose-extraction');
-    } finally {
-      clearInterval(progressInterval);
-      setProcessing(false);
-      setProgress(0);
-    }
+      } else throw new Error(response.error || 'Extraction failed');
+    } catch (err) { setError(err.message); setMode('choose-extraction'); }
+    finally { clearInterval(interval); setProcessing(false); setProgress(0); }
   };
 
+  // Extract Tables
   const extractTables = async () => {
     if (capturedImages.length === 0) return;
+    setExtractionType('tables'); setProcessing(true); setMode('processing'); setProgress(0); setError('');
     
-    setExtractionType('tables');
-    setProcessing(true);
-    setMode('processing');
-    setProgress(0);
-    setError('');
-    
-    let fakeProgress = 0;
-    const progressInterval = setInterval(() => {
-      fakeProgress += Math.random() * 8;
-      if (fakeProgress > 85) fakeProgress = 85;
-      setProgress(Math.round(fakeProgress));
-    }, 300);
+    let prog = 0;
+    const interval = setInterval(() => { prog += Math.random() * 8; if (prog > 85) prog = 85; setProgress(Math.round(prog)); }, 300);
     
     try {
       const response = await ocrAPI.extractWithTables(capturedImages[0]);
+      clearInterval(interval); setProgress(100);
       
-      clearInterval(progressInterval);
-      setProgress(100);
+      console.log('=== TABLE API RESPONSE ===', response);
       
       if (response.success) {
         setResult({
-          ocr: { text: '', confidence: 0 },
+          ocr: { text: response.text || '', confidence: response.confidence || 0 },
           tables: response.tables || [],
-          tableCount: response.tableCount || response.tables?.length || 0
+          tableCount: response.tableCount || 0,
+          rawResponse: response // Store raw for debugging
         });
         setMode('result');
-      } else {
-        throw new Error(response.error || 'Table extraction failed');
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to extract tables');
-      setMode('choose-extraction');
-    } finally {
-      clearInterval(progressInterval);
-      setProcessing(false);
-      setProgress(0);
-    }
+      } else throw new Error(response.error || 'Table extraction failed');
+    } catch (err) { console.error('Table error:', err); setError(err.message); setMode('choose-extraction'); }
+    finally { clearInterval(interval); setProcessing(false); setProgress(0); }
   };
 
-  // ==================== TRANSLATION ====================
-  
+  // Translation
   const translateText = async () => {
     if (!selectedLanguage || !result?.ocr?.text) return;
-    
-    setTranslating(true);
-    setError('');
-    
+    setTranslating(true); setError('');
     try {
-      const scanId = result?.scanId || result?._id || null;
-      const response = await ocrAPI.translate(result.ocr.text, selectedLanguage, scanId);
-      
-      if (response.success) {
-        setResult(prev => ({
-          ...prev,
-          translation: response.translation || response.scan?.translation
-        }));
-      } else {
-        setError(response.message || 'Translation failed');
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to translate');
-    } finally {
-      setTranslating(false);
-    }
+      const response = await ocrAPI.translate(result.ocr.text, selectedLanguage);
+      if (response.success) setResult(prev => ({ ...prev, translation: response.translation }));
+      else setError(response.message || 'Translation failed');
+    } catch (err) { setError('Failed to translate'); }
+    finally { setTranslating(false); }
   };
 
-  // ==================== AI EXPLAIN ====================
-  
+  // AI Explain - Uses translated language OR detects OCR language
   const generateExplanation = async () => {
-    const textToExplain = result?.translation?.translatedText || result?.ocr?.text;
-    if (!textToExplain) return;
-    
-    setSummarizing(true);
-    setError('');
-    
-    try {
-      const response = await ocrAPI.summarize(textToExplain);
-      
-      if (response.success) {
-        setSummary(response.summary);
-      } else {
-        setError(response.message || 'Failed to generate explanation');
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to generate explanation');
-    } finally {
-      setSummarizing(false);
-    }
-  };
-
-  // ==================== EXPORT ====================
-  
-  const copyText = async () => {
     const text = result?.translation?.translatedText || result?.ocr?.text;
     if (!text) return;
+    setSummarizing(true); setError('');
     try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      setError('Failed to copy');
-    }
+      // Determine target language for explanation
+      let targetLanguage = 'en'; // Default English
+      
+      if (result?.translation?.targetLanguage) {
+        // If translated, use translation language
+        targetLanguage = result.translation.targetLanguage;
+      } else if (result?.ocr?.detectedLanguage) {
+        // If OCR detected language, use that
+        targetLanguage = result.ocr.detectedLanguage;
+      }
+      
+      // Pass language hint to API
+      const response = await ocrAPI.summarize(text, targetLanguage);
+      if (response.success) setSummary(response.summary);
+      else setError('Failed to generate explanation');
+    } catch { setError('Failed to generate explanation'); }
+    finally { setSummarizing(false); }
+  };
+
+  // Export functions
+  const copyText = async () => {
+    try { await navigator.clipboard.writeText(result?.translation?.translatedText || result?.ocr?.text || ''); }
+    catch { setError('Failed to copy'); }
   };
 
   const downloadText = () => {
     const text = result?.translation?.translatedText || result?.ocr?.text;
     if (!text) return;
-    
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     a.download = `scan_${Date.now()}.txt`;
     a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadAsWord = () => {
-    const text = result?.ocr?.text || '';
-    const translatedText = result?.translation?.translatedText || '';
-    
-    const html = `<html><head><meta charset="utf-8"></head><body style="font-family:Arial;">
-      <h1>AngelPDF Document</h1>
-      <h2>Extracted Text</h2><pre>${text}</pre>
-      ${translatedText ? `<h2>Translation</h2><pre>${translatedText}</pre>` : ''}
-      ${summary ? `<h2>AI Explanation</h2><pre>${summary}</pre>` : ''}
-    </body></html>`;
-    
-    const blob = new Blob([html], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `document_${Date.now()}.doc`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const downloadTablesAsExcel = async () => {
-    if (!result?.tables || result.tables.length === 0) return;
-    
+    if (!result?.tables?.length) return;
     try {
       const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-      const workbook = XLSX.utils.book_new();
-      
-      result.tables.forEach((table, idx) => {
-        if (table.data?.length > 0) {
-          const worksheet = XLSX.utils.aoa_to_sheet(table.data);
-          const sheetName = (table.title || `Table ${idx + 1}`).substring(0, 31);
-          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      const wb = XLSX.utils.book_new();
+      result.tables.forEach((t, i) => {
+        if (t.data?.length) {
+          const ws = XLSX.utils.aoa_to_sheet(t.data);
+          XLSX.utils.book_append_sheet(wb, ws, `Table ${i + 1}`);
         }
       });
-      
-      const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
       const a = document.createElement('a');
-      a.href = url;
+      a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       a.download = `tables_${Date.now()}.xlsx`;
       a.click();
-      URL.revokeObjectURL(url);
     } catch (err) {
-      // Fallback CSV
-      let csv = '';
-      result.tables.forEach((table, idx) => {
-        csv += `Table ${idx + 1}\n`;
-        table.data?.forEach(row => {
-          csv += row.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',') + '\n';
-        });
-        csv += '\n';
-      });
-      
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
+      console.error('Excel error:', err);
+      // CSV fallback
+      let csv = result.tables.map((t, i) => `Table ${i+1}\n` + (t.data||[]).map(r => r.map(c => `"${c}"`).join(',')).join('\n')).join('\n\n');
       const a = document.createElement('a');
-      a.href = url;
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       a.download = `tables_${Date.now()}.csv`;
       a.click();
-      URL.revokeObjectURL(url);
     }
   };
 
-  // ==================== RENDER: SELECT MODE ====================
-  
-  const renderModeSelection = () => (
-    <div className="max-w-2xl mx-auto">
-      <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-violet-500 to-cyan-500 bg-clip-text text-transparent mb-2">
+  // ========== RENDER: TABLE COMPONENT ==========
+  const TableDisplay = ({ tables }) => {
+    if (!tables || tables.length === 0) {
+      return <p style={{ color: 'white', padding: '20px' }}>No tables found</p>;
+    }
+
+    return (
+      <div style={{ color: 'white' }}>
+        {tables.map((table, idx) => {
+          const data = table.data || [];
+          
+          if (!Array.isArray(data) || data.length === 0) {
+            return (
+              <div key={idx} style={{ marginBottom: '20px', padding: '10px', background: '#333', borderRadius: '8px' }}>
+                <p>Table {idx + 1}: No data</p>
+                <pre style={{ color: '#0f0', fontSize: '12px' }}>{JSON.stringify(table, null, 2)}</pre>
+              </div>
+            );
+          }
+
+          const headers = data[0] || [];
+          const rows = data.slice(1);
+
+          return (
+            <div key={idx} style={{ marginBottom: '30px' }}>
+              <h4 style={{ color: '#22d3ee', marginBottom: '10px', fontWeight: 'bold' }}>
+                {table.title || `Table ${idx + 1}`} ({data.length} rows, {headers.length} columns)
+              </h4>
+              
+              <div style={{ overflowX: 'auto', borderRadius: '8px', border: '1px solid #444' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', background: '#1e293b' }}>
+                  <thead>
+                    <tr style={{ background: '#7c3aed' }}>
+                      {headers.map((h, i) => (
+                        <th key={i} style={{ 
+                          padding: '12px 16px', 
+                          textAlign: 'left', 
+                          color: 'white', 
+                          fontWeight: 'bold',
+                          borderBottom: '2px solid #5b21b6'
+                        }}>
+                          {String(h || '')}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, rowIdx) => (
+                      <tr key={rowIdx} style={{ background: rowIdx % 2 === 0 ? '#334155' : '#1e293b' }}>
+                        {(Array.isArray(row) ? row : []).map((cell, cellIdx) => (
+                          <td key={cellIdx} style={{ 
+                            padding: '10px 16px', 
+                            color: '#e2e8f0',
+                            borderBottom: '1px solid #475569'
+                          }}>
+                            {String(cell ?? '')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              
+              {/* Debug */}
+              <details style={{ marginTop: '10px' }}>
+                <summary style={{ color: '#888', cursor: 'pointer', fontSize: '12px' }}>View raw JSON</summary>
+                <pre style={{ 
+                  background: '#000', 
+                  color: '#0f0', 
+                  padding: '10px', 
+                  borderRadius: '4px', 
+                  fontSize: '11px',
+                  maxHeight: '200px',
+                  overflow: 'auto',
+                  marginTop: '5px'
+                }}>
+                  {JSON.stringify(table, null, 2)}
+                </pre>
+              </details>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ========== RENDER MODES ==========
+
+  const renderSelect = () => (
+    <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <h1 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>
           AI Document Scanner
         </h1>
-        <p className="text-gray-400">Scan multiple pages, create PDF & extract text</p>
+        <p style={{ color: '#9ca3af' }}>Scan multiple pages, create PDF & extract text</p>
       </div>
 
       <div
-        className={`bg-gray-800/50 border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all
-          ${isDragging ? 'border-violet-500 bg-violet-500/10' : 'border-gray-600 hover:border-violet-400'}`}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        style={{
+          background: isDragging ? 'rgba(139, 92, 246, 0.2)' : 'rgba(55, 65, 81, 0.5)',
+          border: `2px dashed ${isDragging ? '#8b5cf6' : '#6b7280'}`,
+          borderRadius: '16px',
+          padding: '50px 30px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          marginBottom: '20px'
+        }}
       >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={handleFileChange}
-          className="hidden"
-        />
+        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} style={{ display: 'none' }} />
         
-        <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <Upload className="w-8 h-8 text-white" />
+        <div style={{ width: '64px', height: '64px', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+          <Upload style={{ width: '32px', height: '32px', color: 'white' }} />
         </div>
         
-        <p className="text-xl font-semibold text-white mb-2">Drag & Drop images here</p>
-        <p className="text-gray-400 mb-6">You can select multiple images at once</p>
+        <p style={{ fontSize: '18px', fontWeight: '600', color: 'white', marginBottom: '8px' }}>Drag & Drop images here</p>
+        <p style={{ color: '#9ca3af', marginBottom: '20px' }}>You can select multiple images at once</p>
         
-        <div className="flex justify-center gap-3 mb-6">
-          <button 
-            onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-            className="flex items-center gap-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-violet-500/30 transition-all"
-          >
-            <Upload className="w-5 h-5" />
-            Browse Files
-          </button>
-          
-          <button 
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-2 bg-gray-700 text-white px-6 py-3 rounded-xl font-semibold hover:bg-gray-600 transition-all"
-          >
-            <Clipboard className="w-5 h-5" />
-            Paste Image
-          </button>
-        </div>
+        <button style={{ background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: 'white', padding: '12px 24px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
+          Browse Files
+        </button>
         
-        <p className="text-sm text-gray-500">Supports: JPG, PNG, WEBP (Max 10MB each)</p>
+        <p style={{ color: '#6b7280', fontSize: '14px', marginTop: '20px' }}>Supports: JPG, PNG, WEBP</p>
       </div>
 
       {isMobile && (
-        <button 
-          onClick={startCamera}
-          className="w-full mt-4 flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-4 rounded-xl font-semibold"
-        >
-          <Camera className="w-6 h-6" />
+        <button onClick={startCamera} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'linear-gradient(135deg, #06b6d4, #0891b2)', color: 'white', padding: '16px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
+          <Camera style={{ width: '24px', height: '24px' }} />
           Open Camera
         </button>
       )}
     </div>
   );
 
-  // ==================== RENDER: CHOOSE EXTRACTION ====================
-  
   const renderChooseExtraction = () => (
-    <div className="max-w-2xl mx-auto">
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-white mb-2">What do you want to extract?</h1>
-        <p className="text-gray-400">{capturedImages.length} image(s) ready to process</p>
+    <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: 'white', marginBottom: '8px' }}>What do you want to extract?</h1>
+        <p style={{ color: '#9ca3af' }}>{capturedImages.length} image(s) ready</p>
       </div>
 
-      {/* Image Preview */}
-      <div className="flex gap-3 overflow-x-auto p-4 bg-gray-800/30 rounded-xl mb-8">
-        {capturedImages.map((img, index) => (
-          <div key={index} className="relative flex-shrink-0 w-20 h-24 rounded-lg overflow-hidden border-2 border-gray-600">
-            <img src={getImageUrl(img)} alt={`Page ${index + 1}`} className="w-full h-full object-cover" />
-            <span className="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-1.5 rounded">
-              {index + 1}
-            </span>
-            <button 
-              onClick={() => setCapturedImages(prev => prev.filter((_, i) => i !== index))}
-              className="absolute top-1 right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-            >
-              <X className="w-3 h-3 text-white" />
-            </button>
+      <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', padding: '16px', background: 'rgba(55, 65, 81, 0.3)', borderRadius: '12px', marginBottom: '32px' }}>
+        {capturedImages.map((img, i) => (
+          <div key={i} style={{ position: 'relative', flexShrink: 0, width: '80px', height: '100px', borderRadius: '8px', overflow: 'hidden', border: '2px solid #4b5563' }}>
+            <img src={getImageUrl(img)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <span style={{ position: 'absolute', bottom: '4px', right: '4px', background: 'rgba(0,0,0,0.7)', color: 'white', fontSize: '11px', padding: '2px 6px', borderRadius: '4px' }}>{i + 1}</span>
           </div>
         ))}
-        <button 
-          onClick={() => fileInputRef.current?.click()}
-          className="flex-shrink-0 w-20 h-24 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center text-gray-500 hover:border-violet-400 hover:text-violet-400 transition-all"
-        >
-          <Plus className="w-6 h-6" />
+        <button onClick={() => fileInputRef.current?.click()} style={{ flexShrink: 0, width: '80px', height: '100px', border: '2px dashed #6b7280', borderRadius: '8px', background: 'transparent', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Plus style={{ width: '24px', height: '24px' }} />
         </button>
-        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
+        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} style={{ display: 'none' }} />
       </div>
 
-      {/* Extraction Options */}
-      <div className="space-y-4">
-        <button 
-          onClick={extractText}
-          className="w-full flex items-center gap-5 bg-gray-800/50 border border-gray-700 rounded-2xl p-6 text-left hover:border-violet-500 hover:bg-gray-800 transition-all group"
-        >
-          <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-xl flex items-center justify-center flex-shrink-0">
-            <FileText className="w-8 h-8 text-white" />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <button onClick={extractText} style={{ display: 'flex', alignItems: 'center', gap: '20px', background: 'rgba(55, 65, 81, 0.5)', border: '1px solid #4b5563', borderRadius: '16px', padding: '24px', cursor: 'pointer', textAlign: 'left' }}>
+          <div style={{ width: '60px', height: '60px', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <FileText style={{ width: '28px', height: '28px', color: 'white' }} />
           </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold text-white mb-1">Extract Text</h3>
-            <p className="text-gray-400 text-sm mb-2">Fast text extraction using AI OCR</p>
-            <span className="inline-block px-3 py-1 bg-green-500/20 text-green-400 text-xs rounded-full">
-              ⚡ ~1 second
-            </span>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'white', marginBottom: '4px' }}>Extract Text</h3>
+            <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '8px' }}>Fast text extraction using AI OCR</p>
+            <span style={{ display: 'inline-block', background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', padding: '4px 12px', borderRadius: '20px', fontSize: '12px' }}>⚡ ~1 second</span>
           </div>
-          <ArrowRight className="w-5 h-5 text-gray-500 group-hover:text-violet-400 group-hover:translate-x-1 transition-all" />
+          <ArrowRight style={{ width: '20px', height: '20px', color: '#9ca3af' }} />
         </button>
 
-        <button 
-          onClick={extractTables}
-          className="w-full flex items-center gap-5 bg-gray-800/50 border border-gray-700 rounded-2xl p-6 text-left hover:border-cyan-500 hover:bg-gray-800 transition-all group"
-        >
-          <div className="w-16 h-16 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Table className="w-8 h-8 text-white" />
+        <button onClick={extractTables} style={{ display: 'flex', alignItems: 'center', gap: '20px', background: 'rgba(55, 65, 81, 0.5)', border: '1px solid #4b5563', borderRadius: '16px', padding: '24px', cursor: 'pointer', textAlign: 'left' }}>
+          <div style={{ width: '60px', height: '60px', background: 'linear-gradient(135deg, #06b6d4, #0891b2)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Table style={{ width: '28px', height: '28px', color: 'white' }} />
           </div>
-          <div className="flex-1">
-            <h3 className="text-lg font-semibold text-white mb-1">Extract Tables</h3>
-            <p className="text-gray-400 text-sm mb-2">AI-powered table detection & Excel export</p>
-            <span className="inline-block px-3 py-1 bg-violet-500/20 text-violet-400 text-xs rounded-full">
-              🤖 AI Processing
-            </span>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'white', marginBottom: '4px' }}>Extract Tables</h3>
+            <p style={{ color: '#9ca3af', fontSize: '14px', marginBottom: '8px' }}>AI-powered table detection & Excel export</p>
+            <span style={{ display: 'inline-block', background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa', padding: '4px 12px', borderRadius: '20px', fontSize: '12px' }}>🤖 AI Processing</span>
           </div>
-          <ArrowRight className="w-5 h-5 text-gray-500 group-hover:text-cyan-400 group-hover:translate-x-1 transition-all" />
+          <ArrowRight style={{ width: '20px', height: '20px', color: '#9ca3af' }} />
         </button>
       </div>
 
-      <button onClick={startNewScan} className="flex items-center gap-2 text-gray-400 hover:text-violet-400 mt-6">
-        <ChevronLeft className="w-4 h-4" />
-        Start Over
+      <button onClick={startNewScan} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'transparent', border: 'none', color: '#9ca3af', marginTop: '24px', cursor: 'pointer' }}>
+        <ChevronLeft style={{ width: '16px', height: '16px' }} /> Start Over
       </button>
     </div>
   );
 
-  // ==================== RENDER: PROCESSING ====================
-  
   const renderProcessing = () => (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="bg-gray-800/50 border border-gray-700 rounded-3xl p-12 text-center max-w-md w-full">
-        <div className="w-16 h-16 border-4 border-violet-500/30 border-t-violet-500 rounded-full animate-spin mx-auto mb-6"></div>
-        
-        <h2 className="text-xl font-semibold text-white mb-4">
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+      <div style={{ background: 'rgba(55, 65, 81, 0.5)', border: '1px solid #4b5563', borderRadius: '24px', padding: '50px', textAlign: 'center', maxWidth: '400px', width: '100%' }}>
+        <div style={{ width: '60px', height: '60px', border: '4px solid rgba(139, 92, 246, 0.3)', borderTopColor: '#8b5cf6', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 24px' }}></div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <h2 style={{ fontSize: '20px', fontWeight: '600', color: 'white', marginBottom: '16px' }}>
           {extractionType === 'tables' ? 'Extracting Tables...' : 'Extracting Text...'}
         </h2>
-        
-        <p className="text-gray-400 h-6 mb-6">
-          {typingText}<span className="animate-pulse text-violet-400">|</span>
-        </p>
-        
-        <div className="h-2 bg-gray-700 rounded-full overflow-hidden mb-3">
-          <div 
-            className="h-full bg-gradient-to-r from-violet-500 to-cyan-500 rounded-full transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          ></div>
+        <p style={{ color: '#9ca3af', height: '24px', marginBottom: '24px' }}>{typingText}<span style={{ color: '#8b5cf6' }}>|</span></p>
+        <div style={{ height: '8px', background: '#374151', borderRadius: '4px', overflow: 'hidden', marginBottom: '12px' }}>
+          <div style={{ height: '100%', background: 'linear-gradient(90deg, #8b5cf6, #06b6d4)', borderRadius: '4px', transition: 'width 0.3s', width: `${progress}%` }}></div>
         </div>
-        <p className="text-sm text-gray-500">{progress}%</p>
+        <p style={{ color: '#6b7280', fontSize: '14px' }}>{progress}%</p>
       </div>
     </div>
   );
 
-  // ==================== RENDER: RESULTS ====================
-  
   const renderResults = () => (
-    <div className="max-w-4xl mx-auto">
+    <div style={{ maxWidth: '900px', margin: '0 auto' }}>
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="flex items-center gap-3 text-2xl font-bold text-white">
-          <CheckCircle className="w-7 h-7 text-green-500" />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '24px', fontWeight: 'bold', color: 'white' }}>
+          <CheckCircle style={{ width: '28px', height: '28px', color: '#10b981' }} />
           Extraction Complete
         </h2>
-        <button 
-          onClick={startNewScan}
-          className="flex items-center gap-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold"
-        >
-          <Camera className="w-5 h-5" />
-          New Scan
+        <button onClick={startNewScan} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: 'white', padding: '10px 20px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
+          <Camera style={{ width: '20px', height: '20px' }} /> New Scan
         </button>
       </div>
 
+      {/* Debug: Raw result */}
+      <details style={{ marginBottom: '20px' }}>
+        <summary style={{ color: '#f59e0b', cursor: 'pointer', fontWeight: 'bold' }}>🔧 DEBUG: View full result object</summary>
+        <pre style={{ background: '#000', color: '#0f0', padding: '15px', borderRadius: '8px', fontSize: '12px', overflow: 'auto', maxHeight: '300px', marginTop: '10px' }}>
+          {JSON.stringify(result, null, 2)}
+        </pre>
+      </details>
+
       {/* TEXT Results */}
       {extractionType === 'text' && result?.ocr?.text && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
-              <FileText className="w-5 h-5 text-violet-400" />
-              Extracted Text
+        <div style={{ background: 'rgba(55, 65, 81, 0.5)', border: '1px solid #4b5563', borderRadius: '16px', padding: '24px', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', fontWeight: '600', color: 'white' }}>
+              <FileText style={{ width: '20px', height: '20px', color: '#8b5cf6' }} /> Extracted Text
             </h3>
-            <span className="px-3 py-1 bg-green-500/20 text-green-400 text-sm rounded-full">
+            <span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', padding: '4px 12px', borderRadius: '20px', fontSize: '14px' }}>
               {result.ocr.confidence}% accuracy
             </span>
           </div>
-          
-          <textarea
-            value={result.ocr.text}
-            readOnly
-            className="w-full h-48 bg-gray-900/50 border border-gray-600 rounded-xl p-4 text-gray-200 font-mono text-sm resize-y focus:outline-none focus:border-violet-500"
-          />
-          
-          <div className="flex gap-2 mt-4 flex-wrap">
-            <button onClick={copyText} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-all">
-              <Copy className="w-4 h-4" /> Copy
+          <textarea value={result.ocr.text} readOnly style={{ width: '100%', height: '200px', background: 'rgba(0,0,0,0.3)', border: '1px solid #4b5563', borderRadius: '12px', padding: '16px', color: '#e5e7eb', fontFamily: 'monospace', fontSize: '14px', resize: 'vertical' }} />
+          <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
+            <button onClick={copyText} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#374151', color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
+              <Copy style={{ width: '16px', height: '16px' }} /> Copy
             </button>
-            <button onClick={downloadText} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-all">
-              <Download className="w-4 h-4" /> TXT
-            </button>
-            <button onClick={downloadAsWord} className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition-all">
-              <FileText className="w-4 h-4" /> Word
+            <button onClick={downloadText} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#374151', color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
+              <Download style={{ width: '16px', height: '16px' }} /> TXT
             </button>
           </div>
         </div>
       )}
 
       {/* TABLE Results */}
-      {extractionType === 'tables' && result?.tables?.length > 0 && (
-        <div className="bg-slate-800 border border-slate-600 rounded-2xl p-6 mb-5">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-4">
-            <Table className="w-5 h-5 text-cyan-400" />
-            Extracted Tables ({result.tables.length})
+      {extractionType === 'tables' && (
+        <div style={{ background: 'rgba(55, 65, 81, 0.5)', border: '1px solid #4b5563', borderRadius: '16px', padding: '24px', marginBottom: '20px' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', fontWeight: '600', color: 'white', marginBottom: '20px' }}>
+            <Table style={{ width: '20px', height: '20px', color: '#06b6d4' }} /> 
+            Extracted Tables ({result?.tables?.length || 0})
           </h3>
           
-          {result.tables.map((table, idx) => {
-            // Handle different table data structures
-            const tableData = table.data || table.rows || [];
-            const headers = table.headers || (tableData.length > 0 ? tableData[0] : []);
-            const rows = table.headers ? tableData : tableData.slice(1);
-            
-            return (
-              <div key={idx} className="mb-6">
-                <h4 className="text-cyan-300 font-medium mb-3">{table.title || `Table ${idx + 1}`}</h4>
-                <div className="overflow-x-auto rounded-lg border border-slate-500">
-                  <table className="w-full text-sm" style={{ backgroundColor: '#1e293b' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: '#7c3aed' }}>
-                        {headers.map((header, i) => (
-                          <th key={i} className="px-4 py-3 text-left text-white font-bold border-b border-slate-500">
-                            {String(header || '')}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row, rowIdx) => (
-                        <tr 
-                          key={rowIdx} 
-                          style={{ backgroundColor: rowIdx % 2 === 0 ? '#334155' : '#1e293b' }}
-                        >
-                          {(Array.isArray(row) ? row : []).map((cell, cellIdx) => (
-                            <td 
-                              key={cellIdx} 
-                              className="px-4 py-3 border-b border-slate-600"
-                              style={{ color: '#e2e8f0' }}
-                            >
-                              {String(cell || '')}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                
-                {/* Debug info - remove in production */}
-                <details className="mt-2 text-xs text-gray-500">
-                  <summary className="cursor-pointer">Debug: View raw data</summary>
-                  <pre className="mt-2 p-2 bg-black rounded text-green-400 overflow-auto max-h-40">
-                    {JSON.stringify(table, null, 2)}
-                  </pre>
-                </details>
-              </div>
-            );
-          })}
+          <TableDisplay tables={result?.tables} />
           
-          <button 
-            onClick={downloadTablesAsExcel}
-            className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white px-6 py-3 rounded-xl font-semibold mt-4 hover:opacity-90 transition-opacity"
-          >
-            <FileSpreadsheet className="w-5 h-5" />
-            Download as Excel
-          </button>
+          {result?.tables?.length > 0 && (
+            <button onClick={downloadTablesAsExcel} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'linear-gradient(135deg, #06b6d4, #0891b2)', color: 'white', padding: '14px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer', marginTop: '20px' }}>
+              <FileSpreadsheet style={{ width: '20px', height: '20px' }} /> Download as Excel
+            </button>
+          )}
         </div>
       )}
 
-      {/* TRANSLATION - Only for text */}
+      {/* Translation */}
       {extractionType === 'text' && result?.ocr?.text && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-4">
-            <Globe className="w-5 h-5 text-cyan-400" />
-            Translate
+        <div style={{ background: 'rgba(55, 65, 81, 0.5)', border: '1px solid #4b5563', borderRadius: '16px', padding: '24px', marginBottom: '20px' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', fontWeight: '600', color: 'white', marginBottom: '16px' }}>
+            <Globe style={{ width: '20px', height: '20px', color: '#06b6d4' }} /> Translate
           </h3>
-          
-          <div className="flex gap-3 mb-4">
-            <select
-              value={selectedLanguage}
-              onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="flex-1 bg-gray-900 border border-gray-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-violet-500"
-            >
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <select value={selectedLanguage} onChange={(e) => setSelectedLanguage(e.target.value)} style={{ flex: 1, minWidth: '200px', background: '#1f2937', border: '1px solid #4b5563', borderRadius: '12px', padding: '12px 16px', color: 'white', fontSize: '14px' }}>
               <option value="">Select language...</option>
-              <optgroup label="Indian Languages">
+              
+              <optgroup label="🇮🇳 Indian Languages">
                 <option value="hi">Hindi (हिन्दी)</option>
                 <option value="bn">Bengali (বাংলা)</option>
                 <option value="te">Telugu (తెలుగు)</option>
                 <option value="mr">Marathi (मराठी)</option>
                 <option value="ta">Tamil (தமிழ்)</option>
                 <option value="gu">Gujarati (ગુજરાતી)</option>
+                <option value="kn">Kannada (ಕನ್ನಡ)</option>
+                <option value="ml">Malayalam (മലയാളം)</option>
+                <option value="pa">Punjabi (ਪੰਜਾਬੀ)</option>
+                <option value="or">Odia (ଓଡ଼ିଆ)</option>
+                <option value="as">Assamese (অসমীয়া)</option>
+                <option value="ur">Urdu (اردو)</option>
+                <option value="sa">Sanskrit (संस्कृतम्)</option>
+                <option value="ne">Nepali (नेपाली)</option>
+                <option value="si">Sinhala (සිංහල)</option>
               </optgroup>
-              <optgroup label="European">
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
-                <option value="de">German</option>
+              
+              <optgroup label="🌍 European Languages">
+                <option value="en">English</option>
+                <option value="es">Spanish (Español)</option>
+                <option value="fr">French (Français)</option>
+                <option value="de">German (Deutsch)</option>
+                <option value="it">Italian (Italiano)</option>
+                <option value="pt">Portuguese (Português)</option>
+                <option value="ru">Russian (Русский)</option>
+                <option value="pl">Polish (Polski)</option>
+                <option value="nl">Dutch (Nederlands)</option>
+                <option value="sv">Swedish (Svenska)</option>
+                <option value="da">Danish (Dansk)</option>
+                <option value="no">Norwegian (Norsk)</option>
+                <option value="fi">Finnish (Suomi)</option>
+                <option value="el">Greek (Ελληνικά)</option>
+                <option value="cs">Czech (Čeština)</option>
+                <option value="ro">Romanian (Română)</option>
+                <option value="hu">Hungarian (Magyar)</option>
+                <option value="uk">Ukrainian (Українська)</option>
               </optgroup>
-              <optgroup label="Asian">
-                <option value="zh">Chinese</option>
-                <option value="ja">Japanese</option>
-                <option value="ko">Korean</option>
+              
+              <optgroup label="🌏 Asian Languages">
+                <option value="zh">Chinese Simplified (简体中文)</option>
+                <option value="zh-TW">Chinese Traditional (繁體中文)</option>
+                <option value="ja">Japanese (日本語)</option>
+                <option value="ko">Korean (한국어)</option>
+                <option value="th">Thai (ไทย)</option>
+                <option value="vi">Vietnamese (Tiếng Việt)</option>
+                <option value="id">Indonesian (Bahasa Indonesia)</option>
+                <option value="ms">Malay (Bahasa Melayu)</option>
+                <option value="fil">Filipino (Tagalog)</option>
+                <option value="my">Myanmar (မြန်မာ)</option>
+                <option value="km">Khmer (ខ្មែរ)</option>
+                <option value="lo">Lao (ລາວ)</option>
+              </optgroup>
+              
+              <optgroup label="🌍 Middle Eastern Languages">
+                <option value="ar">Arabic (العربية)</option>
+                <option value="fa">Persian (فارسی)</option>
+                <option value="he">Hebrew (עברית)</option>
+                <option value="tr">Turkish (Türkçe)</option>
+              </optgroup>
+              
+              <optgroup label="🌍 African Languages">
+                <option value="sw">Swahili (Kiswahili)</option>
+                <option value="am">Amharic (አማርኛ)</option>
+                <option value="ha">Hausa</option>
+                <option value="yo">Yoruba</option>
+                <option value="zu">Zulu (isiZulu)</option>
+                <option value="af">Afrikaans</option>
               </optgroup>
             </select>
-            
-            <button
-              onClick={translateText}
-              disabled={!selectedLanguage || translating}
-              className="flex items-center gap-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white px-6 py-3 rounded-xl font-semibold disabled:opacity-50"
-            >
-              {translating ? <Loader className="w-5 h-5 animate-spin" /> : <Globe className="w-5 h-5" />}
+            <button onClick={translateText} disabled={!selectedLanguage || translating} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: 'white', padding: '12px 24px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer', opacity: (!selectedLanguage || translating) ? 0.5 : 1 }}>
+              {translating ? <Loader style={{ width: '20px', height: '20px', animation: 'spin 1s linear infinite' }} /> : <Globe style={{ width: '20px', height: '20px' }} />}
               {translating ? 'Translating...' : 'Translate'}
             </button>
           </div>
-          
           {result?.translation?.translatedText && (
-            <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4">
-              <p className="flex items-center gap-2 text-cyan-400 text-sm mb-2">
-                <CheckCircle className="w-4 h-4" />
-                Translated to {result.translation.targetLanguage}
-              </p>
-              <p className="text-gray-200 whitespace-pre-wrap">{result.translation.translatedText}</p>
+            <div style={{ background: 'rgba(6, 182, 212, 0.1)', border: '1px solid rgba(6, 182, 212, 0.3)', borderRadius: '12px', padding: '16px' }}>
+              <p style={{ color: '#06b6d4', fontSize: '14px', marginBottom: '8px' }}>✓ Translated</p>
+              <p style={{ color: '#e5e7eb', whiteSpace: 'pre-wrap' }}>{result.translation.translatedText}</p>
             </div>
           )}
         </div>
       )}
 
-      {/* AI EXPLAIN - Only for text, after translation */}
+      {/* AI Explain */}
       {extractionType === 'text' && result?.ocr?.text && (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-2xl p-6 mb-5">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-white mb-4">
-            <MessageSquare className="w-5 h-5 text-amber-400" />
-            Ask AngelPDF to Explain
+        <div style={{ background: 'rgba(55, 65, 81, 0.5)', border: '1px solid #4b5563', borderRadius: '16px', padding: '24px', marginBottom: '20px' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', fontWeight: '600', color: 'white', marginBottom: '16px' }}>
+            <MessageSquare style={{ width: '20px', height: '20px', color: '#f59e0b' }} /> Ask AngelPDF to Explain
           </h3>
-          
-          <p className="text-gray-400 text-sm mb-4">
-            Get a detailed explanation with key points
-            {selectedLanguage && !result?.translation?.translatedText && ' (Translate first for explanation in your language)'}
-          </p>
-          
-          <button
-            onClick={generateExplanation}
-            disabled={summarizing || (selectedLanguage && !result?.translation?.translatedText)}
-            className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-xl font-semibold disabled:opacity-50 transition-all"
-          >
-            {summarizing ? <Loader className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+          <button onClick={generateExplanation} disabled={summarizing} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#374151', color: 'white', padding: '14px', borderRadius: '12px', border: 'none', fontWeight: '600', cursor: 'pointer', opacity: summarizing ? 0.5 : 1 }}>
+            {summarizing ? <Loader style={{ width: '20px', height: '20px', animation: 'spin 1s linear infinite' }} /> : <Sparkles style={{ width: '20px', height: '20px' }} />}
             {summarizing ? 'Generating...' : 'Explain Content'}
           </button>
-          
           {summary && (
-            <div className="bg-violet-500/10 border border-violet-500/30 rounded-xl p-4 mt-4">
-              <p className="text-gray-200 whitespace-pre-wrap leading-relaxed">{summary}</p>
+            <div style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', borderRadius: '12px', padding: '16px', marginTop: '16px' }}>
+              <p style={{ color: '#e5e7eb', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{summary}</p>
             </div>
           )}
         </div>
@@ -858,52 +652,37 @@ const Scanner = () => {
 
       {/* Error */}
       {error && (
-        <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', padding: '16px', color: '#f87171' }}>
+          <AlertCircle style={{ width: '20px', height: '20px', flexShrink: 0 }} />
           <p>{error}</p>
         </div>
       )}
     </div>
   );
 
-  // ==================== RENDER: CAMERA ====================
-  
   const renderCamera = () => (
-    <div className="fixed inset-0 bg-black z-50">
-      <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
-      <canvas ref={canvasRef} className="hidden" />
-      
-      <div className="absolute bottom-10 left-0 right-0 flex justify-center items-center gap-10">
-        <button onClick={stopCamera} className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
-          <X className="w-6 h-6 text-white" />
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: '#000', zIndex: 1000 }}>
+      <video ref={videoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+      <div style={{ position: 'absolute', bottom: '40px', left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: '40px', alignItems: 'center' }}>
+        <button onClick={stopCamera} style={{ width: '50px', height: '50px', background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', color: 'white', cursor: 'pointer' }}>
+          <X style={{ width: '24px', height: '24px' }} />
         </button>
-        
-        <button onClick={capturePhoto} className="w-20 h-20 bg-white rounded-full p-1">
-          <div className="w-full h-full bg-white rounded-full border-4 border-gray-300"></div>
-        </button>
-        
-        <div className="w-12 text-center text-white text-sm">
-          {capturedImages.length > 0 && `${capturedImages.length}`}
-        </div>
+        <button onClick={capturePhoto} style={{ width: '80px', height: '80px', background: 'white', border: 'none', borderRadius: '50%', cursor: 'pointer' }}></button>
+        <div style={{ width: '50px', color: 'white', textAlign: 'center' }}>{capturedImages.length || ''}</div>
       </div>
-      
       {capturedImages.length > 0 && (
-        <button 
-          onClick={() => { stopCamera(); setMode('choose-extraction'); }}
-          className="absolute bottom-28 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-violet-500 text-white px-6 py-3 rounded-full font-semibold"
-        >
-          <Check className="w-5 h-5" />
-          Done ({capturedImages.length})
+        <button onClick={() => { stopCamera(); setMode('choose-extraction'); }} style={{ position: 'absolute', bottom: '120px', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: '8px', background: '#8b5cf6', color: 'white', padding: '14px 28px', borderRadius: '30px', border: 'none', fontWeight: '600', cursor: 'pointer' }}>
+          <Check style={{ width: '20px', height: '20px' }} /> Done ({capturedImages.length})
         </button>
       )}
     </div>
   );
 
-  // ==================== MAIN RENDER ====================
-  
+  // Main render
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6 pb-24">
-      {mode === 'select' && renderModeSelection()}
+    <div style={{ minHeight: '100vh', background: '#111827', color: 'white', padding: '24px', paddingBottom: '100px' }}>
+      {mode === 'select' && renderSelect()}
       {mode === 'choose-extraction' && renderChooseExtraction()}
       {mode === 'camera' && renderCamera()}
       {mode === 'processing' && renderProcessing()}
