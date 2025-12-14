@@ -1,175 +1,298 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import {
+  Camera,
+  FileText,
+  Table2,
+  Globe,
+  FileDown,
+  Sparkles,
+  Upload,
+  Scan,
+  Languages,
+  FileSpreadsheet,
+  FilePlus,
+  Scissors,
+  Minimize2,
+  FileOutput,
+  Presentation,
+  Sheet,
+  Edit3,
+  ArrowRight,
+  Check,
+  Zap,
+  Shield,
+  Clock,
+  ChevronRight,
+} from 'lucide-react';
 import './Landing.css';
 
 const Landing = () => {
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Tool cards data
+  const mainTools = [
+    {
+      id: 'scanner',
+      name: 'AI Scanner',
+      description: 'Extract text from images',
+      icon: Scan,
+      color: 'from-violet-500 to-purple-600',
+      link: '/scanner',
+      badge: 'Popular',
+    },
+    {
+      id: 'tables',
+      name: 'Table Extractor',
+      description: 'Extract tables to Excel',
+      icon: Table2,
+      color: 'from-cyan-500 to-blue-600',
+      link: '/scanner?mode=tables',
+    },
+    {
+      id: 'translate',
+      name: 'Translate',
+      description: 'Translate documents',
+      icon: Languages,
+      color: 'from-emerald-500 to-teal-600',
+      link: '/scanner',
+    },
+    {
+      id: 'explain',
+      name: 'AI Explain',
+      description: 'Get AI explanations',
+      icon: Sparkles,
+      color: 'from-amber-500 to-orange-600',
+      link: '/scanner',
+      badge: 'New',
+    },
+  ];
+
+  const pdfTools = [
+    { name: 'Merge PDF', icon: FilePlus, color: 'from-violet-500 to-purple-600', link: '/pdf-tools' },
+    { name: 'Split PDF', icon: Scissors, color: 'from-pink-500 to-rose-600', link: '/pdf-tools' },
+    { name: 'Compress PDF', icon: Minimize2, color: 'from-cyan-500 to-blue-600', link: '/pdf-tools' },
+    { name: 'PDF to Word', icon: FileText, color: 'from-blue-500 to-indigo-600', link: '/pdf-tools' },
+    { name: 'PDF to Excel', icon: FileSpreadsheet, color: 'from-emerald-500 to-green-600', link: '/pdf-tools' },
+    { name: 'PDF to PPT', icon: Presentation, color: 'from-orange-500 to-red-600', link: '/pdf-tools' },
+    { name: 'Word to PDF', icon: FileOutput, color: 'from-indigo-500 to-blue-600', link: '/pdf-tools' },
+    { name: 'Excel to PDF', icon: Sheet, color: 'from-green-500 to-emerald-600', link: '/pdf-tools' },
+    { name: 'Edit PDF', icon: Edit3, color: 'from-purple-500 to-violet-600', link: '/pdf-tools', badge: 'New' },
+  ];
+
+  const features = [
+    { icon: Zap, title: 'Lightning Fast', description: 'Process documents in seconds with our AI' },
+    { icon: Shield, title: 'Secure & Private', description: 'Your files are encrypted and auto-deleted' },
+    { icon: Globe, title: '35+ Languages', description: 'Translate to any major language instantly' },
+    { icon: Clock, title: 'No Sign-up', description: 'Start using immediately, no account needed' },
+  ];
+
+  // Handle drag and drop
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      // Navigate to scanner with files
+      navigate('/scanner', { state: { files: Array.from(files) } });
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const files = e.target.files;
+    if (files.length > 0) {
+      navigate('/scanner', { state: { files: Array.from(files) } });
+    }
+  };
+
   return (
-    <div className="angelpdf-landing">
+    <div className="landing-dark">
       {/* Header */}
       <header className="landing-header">
-        <div className="container">
-          <div className="header-content">
-            <Link to="/" className="logo">
-              <span className="logo-icon">A</span>
-              AngelPDF
-            </Link>
-            <Link to="/login" className="nav-btn">Sign In</Link>
+        <div className="header-container">
+          <Link to="/" className="logo">
+            <div className="logo-icon">
+              <Camera className="w-5 h-5" />
+            </div>
+            <span className="logo-text">AngelPDF</span>
+          </Link>
+
+          <nav className="nav-links">
+            <Link to="/scanner" className="nav-link">Scanner</Link>
+            <Link to="/pdf-tools" className="nav-link">PDF Tools</Link>
+            <Link to="/pricing" className="nav-link">Pricing</Link>
+          </nav>
+
+          <div className="header-actions">
+            {isAuthenticated ? (
+              <Link to="/dashboard" className="btn-primary">
+                Dashboard
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            ) : (
+              <Link to="/login" className="btn-primary">
+                Sign In
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            )}
           </div>
         </div>
       </header>
 
       {/* Hero Section */}
-      <section className="hero">
-        <div className="container">
+      <section className="hero-section">
+        <div className="hero-container">
           <div className="hero-badge">
-            ✨ <span>AI-Powered</span> • Free Forever
+            <Sparkles className="w-4 h-4" />
+            <span>AI-Powered</span>
+            <span className="badge-divider">•</span>
+            <span>Free Forever</span>
           </div>
-          <h1>AI Document Intelligence<br/>Platform</h1>
-          <p className="subtitle">Scan, Extract, Translate, Convert — All powered by AI, all completely free</p>
-        </div>
-      </section>
 
-      {/* Upload Section */}
-      <section className="upload-section">
-        <div className="container">
-          <div className="upload-card">
-            <div className="upload-area">
-              <div className="upload-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-              </div>
-              <p className="upload-title">Drop your files here</p>
-              <p className="upload-subtitle">or click to browse from your device</p>
-              <Link to="/scanner" className="browse-btn">Select Files</Link>
-              <p className="supported-formats">Supported formats</p>
-              <div className="format-tags">
-                <span className="format-tag">PDF</span>
-                <span className="format-tag">JPG</span>
-                <span className="format-tag">PNG</span>
-                <span className="format-tag">TIFF</span>
-                <span className="format-tag">WEBP</span>
-              </div>
+          <h1 className="hero-title">
+            AI Document Intelligence
+            <span className="gradient-text"> Platform</span>
+          </h1>
+
+          <p className="hero-subtitle">
+            Scan, Extract, Translate, Convert — All powered by AI, completely free
+          </p>
+
+          {/* Upload Area */}
+          <div
+            className={`upload-zone ${isDragging ? 'dragging' : ''}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div className="upload-icon-wrapper">
+              <Upload className="w-8 h-8" />
+            </div>
+            <p className="upload-title">Drop your files here</p>
+            <p className="upload-subtitle">or click to browse from your device</p>
+            
+            <label className="upload-btn">
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <span>Select Files</span>
+            </label>
+
+            <div className="format-tags">
+              <span>PDF</span>
+              <span>JPG</span>
+              <span>PNG</span>
+              <span>WEBP</span>
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* Middle Tagline */}
-      <section className="tagline-section">
-        <div className="container">
-          <h2>Snap. Scan. Extract. Done.</h2>
-          <p>AI-powered text extraction from any image — <span className="highlight">No signup needed</span></p>
-        </div>
-      </section>
-
-      {/* Tools Section */}
-      <section className="tools-section">
-        <div className="container">
-          <div className="section-header">
-            <h3>All PDF Tools You Need</h3>
-            <p>Professional document tools, completely free</p>
+          {/* Quick Action Buttons */}
+          <div className="quick-actions">
+            <Link to="/scanner" className="quick-action-btn">
+              <FileText className="w-5 h-5" />
+              <span>Extract Text</span>
+            </Link>
+            <Link to="/scanner?mode=tables" className="quick-action-btn">
+              <Table2 className="w-5 h-5" />
+              <span>Extract Tables</span>
+            </Link>
+            <Link to="/pdf-tools" className="quick-action-btn">
+              <FileDown className="w-5 h-5" />
+              <span>PDF Tools</span>
+            </Link>
           </div>
-          <div className="tools-grid">
-            {/* Tool 1: Merge PDF */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-merge">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-              </div>
-              <span className="tool-name">Merge PDF</span>
-            </Link>
+        </div>
+      </section>
 
-            {/* Tool 2: Split PDF */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-split">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </div>
-              <span className="tool-name">Split PDF</span>
-            </Link>
+      {/* Main Tools Section */}
+      <section className="tools-section">
+        <div className="section-container">
+          <div className="section-header">
+            <h2>AI-Powered Tools</h2>
+            <p>Professional document processing, completely free</p>
+          </div>
 
-            {/* Tool 3: Compress PDF */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-compress">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-              <span className="tool-name">Compress PDF</span>
-            </Link>
+          <div className="main-tools-grid">
+            {mainTools.map((tool) => (
+              <Link to={tool.link} key={tool.id} className="main-tool-card">
+                {tool.badge && <span className="tool-badge">{tool.badge}</span>}
+                <div className={`tool-icon-wrapper bg-gradient-to-br ${tool.color}`}>
+                  <tool.icon className="w-7 h-7" />
+                </div>
+                <h3>{tool.name}</h3>
+                <p>{tool.description}</p>
+                <ChevronRight className="arrow-icon" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            {/* Tool 4: PDF to Word */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-pdf-word">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+      {/* Features Section */}
+      <section className="features-section">
+        <div className="section-container">
+          <div className="features-grid">
+            {features.map((feature, index) => (
+              <div key={index} className="feature-card">
+                <div className="feature-icon">
+                  <feature.icon className="w-6 h-6" />
+                </div>
+                <h3>{feature.title}</h3>
+                <p>{feature.description}</p>
               </div>
-              <span className="tool-name">PDF to Word</span>
-            </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            {/* Tool 5: PDF to PowerPoint */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-pdf-ppt">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <span className="tool-name">PDF to PPT</span>
-            </Link>
+      {/* PDF Tools Section */}
+      <section className="pdf-tools-section">
+        <div className="section-container">
+          <div className="section-header">
+            <h2>All PDF Tools You Need</h2>
+            <p>Everything for your documents in one place</p>
+          </div>
 
-            {/* Tool 6: PDF to Excel */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-pdf-excel">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <span className="tool-name">PDF to Excel</span>
-            </Link>
+          <div className="pdf-tools-grid">
+            {pdfTools.map((tool, index) => (
+              <Link to={tool.link} key={index} className="pdf-tool-card">
+                {tool.badge && <span className="tool-badge">{tool.badge}</span>}
+                <div className={`pdf-tool-icon bg-gradient-to-br ${tool.color}`}>
+                  <tool.icon className="w-6 h-6" />
+                </div>
+                <span className="pdf-tool-name">{tool.name}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
-            {/* Tool 7: Word to PDF */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-word-pdf">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <span className="tool-name">Word to PDF</span>
-            </Link>
-
-            {/* Tool 8: PowerPoint to PDF */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-ppt-pdf">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 13v-1m4 1v-3m4 3V8M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                </svg>
-              </div>
-              <span className="tool-name">PPT to PDF</span>
-            </Link>
-
-            {/* Tool 9: Excel to PDF */}
-            <Link to="/pdf-tools" className="tool-card">
-              <div className="tool-icon icon-excel-pdf">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <span className="tool-name">Excel to PDF</span>
-            </Link>
-
-            {/* Tool 10: Edit PDF */}
-            <Link to="/pdf-tools" className="tool-card">
-              <span className="new-badge">New!</span>
-              <div className="tool-icon icon-edit">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </div>
-              <span className="tool-name">Edit PDF</span>
+      {/* CTA Section */}
+      <section className="cta-section">
+        <div className="section-container">
+          <div className="cta-card">
+            <h2>Ready to get started?</h2>
+            <p>No sign-up required. Start scanning your documents now.</p>
+            <Link to="/scanner" className="cta-btn">
+              <Camera className="w-5 h-5" />
+              <span>Start Scanning</span>
+              <ArrowRight className="w-5 h-5" />
             </Link>
           </div>
         </div>
@@ -177,12 +300,35 @@ const Landing = () => {
 
       {/* Footer */}
       <footer className="landing-footer">
-        <div className="container">
-          <div className="footer-links">
-            <Link to="/pricing">Pricing</Link>
-            <Link to="/login">Sign In</Link>
+        <div className="footer-container">
+          <div className="footer-brand">
+            <div className="logo">
+              <div className="logo-icon">
+                <Camera className="w-4 h-4" />
+              </div>
+              <span className="logo-text">AngelPDF</span>
+            </div>
+            <p>AI-powered document intelligence platform</p>
           </div>
-          <p>&copy; 2024 AngelPDF. All rights reserved.</p>
+
+          <div className="footer-links">
+            <div className="footer-column">
+              <h4>Product</h4>
+              <Link to="/scanner">Scanner</Link>
+              <Link to="/pdf-tools">PDF Tools</Link>
+              <Link to="/pricing">Pricing</Link>
+            </div>
+            <div className="footer-column">
+              <h4>Account</h4>
+              <Link to="/login">Sign In</Link>
+              <Link to="/dashboard">Dashboard</Link>
+              <Link to="/settings">Settings</Link>
+            </div>
+          </div>
+
+          <div className="footer-bottom">
+            <p>&copy; 2024 AngelPDF. All rights reserved.</p>
+          </div>
         </div>
       </footer>
     </div>
