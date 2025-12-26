@@ -1,17 +1,13 @@
 /**
- * QuickScan.jsx (IMPROVED)
- * 
- * Feature 1: Quick Scan & Translate
+ * QuickScan.jsx - IMPROVED v3
  * 
  * Changes:
- * 1. Removed filter/enhance step - goes directly to processing
- * 2. Better status bar during processing
- * 3. Larger windows for Extract, Translate, Explain
- * 4. Export section at the bottom (Copy, Share, Download)
- * 5. Smoother overall experience
+ * - Each section has its own Copy/Share/Download buttons
+ * - Much larger text areas (250px min)
+ * - Better UX
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { ocrAPI } from '../services/api';
@@ -31,13 +27,11 @@ import {
   Share2,
   Download,
   FileText,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 
-// Supported languages
+// Languages
 const LANGUAGES = [
-  { group: '🇮🇳 Indian Languages', languages: [
+  { group: '🇮🇳 Indian', languages: [
     { code: 'hi', name: 'Hindi (हिन्दी)' },
     { code: 'bn', name: 'Bengali (বাংলা)' },
     { code: 'te', name: 'Telugu (తెలుగు)' },
@@ -49,7 +43,7 @@ const LANGUAGES = [
     { code: 'pa', name: 'Punjabi (ਪੰਜਾਬੀ)' },
     { code: 'ur', name: 'Urdu (اردو)' },
   ]},
-  { group: '🌍 European Languages', languages: [
+  { group: '🌍 European', languages: [
     { code: 'en', name: 'English' },
     { code: 'es', name: 'Spanish (Español)' },
     { code: 'fr', name: 'French (Français)' },
@@ -58,7 +52,7 @@ const LANGUAGES = [
     { code: 'pt', name: 'Portuguese (Português)' },
     { code: 'ru', name: 'Russian (Русский)' },
   ]},
-  { group: '🌏 Asian Languages', languages: [
+  { group: '🌏 Asian', languages: [
     { code: 'zh', name: 'Chinese (简体中文)' },
     { code: 'ja', name: 'Japanese (日本語)' },
     { code: 'ko', name: 'Korean (한국어)' },
@@ -72,7 +66,6 @@ const LANGUAGES = [
   ]},
 ];
 
-// Steps
 const STEPS = {
   SELECT: 'select',
   CAMERA: 'camera',
@@ -81,49 +74,32 @@ const STEPS = {
   RESULT: 'result',
 };
 
-// Processing stages for status bar
-const PROCESSING_STAGES = [
-  { id: 'upload', label: 'Uploading image...', progress: 20 },
-  { id: 'ocr', label: 'Extracting text...', progress: 60 },
-  { id: 'complete', label: 'Almost done...', progress: 90 },
-];
-
 const QuickScan = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
-  const isNative = Capacitor.isNativePlatform();
 
-  // Flow state
+  // Flow
   const [step, setStep] = useState(STEPS.SELECT);
   const [capturedImage, setCapturedImage] = useState(null);
-  const [processedImage, setProcessedImage] = useState(null);
   
-  // Processing state
-  const [processing, setProcessing] = useState(false);
-  const [currentStage, setCurrentStage] = useState(0);
+  // Processing
   const [progress, setProgress] = useState(0);
+  const [progressText, setProgressText] = useState('');
   const [error, setError] = useState(null);
 
-  // Result state
+  // Results
   const [extractedText, setExtractedText] = useState('');
   const [confidence, setConfidence] = useState(0);
-
-  // Translation state
   const [selectedLanguage, setSelectedLanguage] = useState('');
   const [translating, setTranslating] = useState(false);
   const [translatedText, setTranslatedText] = useState('');
-
-  // AI Explain state
   const [explaining, setExplaining] = useState(false);
   const [explanation, setExplanation] = useState('');
 
-  // UI state
-  const [copied, setCopied] = useState(false);
-  const [expandedSection, setExpandedSection] = useState('extract'); // extract, translate, explain
+  // UI
+  const [copiedSection, setCopiedSection] = useState(null);
 
-  /**
-   * Handle file upload
-   */
+  // File upload
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files).filter(f => f.type.startsWith('image/'));
     if (files.length > 0) {
@@ -132,50 +108,32 @@ const QuickScan = () => {
     }
   };
 
-  /**
-   * Handle camera capture complete
-   */
+  // Camera complete
   const handleCameraComplete = (images) => {
-    if (images && images.length > 0) {
+    if (images?.length > 0) {
       setCapturedImage(images[0]);
       setStep(STEPS.CROP);
     }
   };
 
-  /**
-   * Handle crop complete - GO DIRECTLY TO PROCESSING (no filter step)
-   */
+  // Crop complete → Start OCR
   const handleCropComplete = async (data) => {
-    setProcessedImage(data.image);
-    
-    // Start processing immediately
     setStep(STEPS.PROCESSING);
-    setProcessing(true);
-    setCurrentStage(0);
     setProgress(0);
     setError(null);
 
     try {
-      // Stage 1: Upload
-      setCurrentStage(0);
-      await animateProgress(0, 20, 500);
+      setProgressText('Uploading image...');
+      await animateProgress(0, 25, 400);
 
-      // Stage 2: OCR
-      setCurrentStage(1);
-      const imageToProcess = data.image || capturedImage;
+      setProgressText('Extracting text with AI...');
+      const progressPromise = animateProgress(25, 85, 2500);
       
-      // Start progress animation
-      const progressPromise = animateProgress(20, 85, 3000);
-      
-      // Call OCR API
-      const response = await ocrAPI.extractText(imageToProcess);
-      
-      // Wait for progress to catch up
+      const response = await ocrAPI.extractText(data.image || capturedImage);
       await progressPromise;
 
-      // Stage 3: Complete
-      setCurrentStage(2);
-      await animateProgress(85, 100, 300);
+      setProgressText('Finishing up...');
+      await animateProgress(85, 100, 200);
 
       if (response.success) {
         setExtractedText(response.text || '');
@@ -185,228 +143,152 @@ const QuickScan = () => {
         throw new Error(response.error || 'OCR failed');
       }
     } catch (err) {
-      console.error('OCR Error:', err);
-      setError(err.message || 'Failed to extract text. Please try again.');
+      setError(err.message || 'Failed to extract text');
       setStep(STEPS.SELECT);
-    } finally {
-      setProcessing(false);
     }
   };
 
-  /**
-   * Animate progress smoothly
-   */
+  // Animate progress
   const animateProgress = (from, to, duration) => {
     return new Promise((resolve) => {
-      const startTime = Date.now();
-      const animate = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        const current = from + (to - from) * progress;
-        setProgress(Math.round(current));
-        
-        if (progress < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          resolve();
-        }
+      const start = Date.now();
+      const tick = () => {
+        const elapsed = Date.now() - start;
+        const p = Math.min(elapsed / duration, 1);
+        setProgress(Math.round(from + (to - from) * p));
+        if (p < 1) requestAnimationFrame(tick);
+        else resolve();
       };
-      animate();
+      tick();
     });
   };
 
-  /**
-   * Translate text
-   */
+  // Translate
   const handleTranslate = async () => {
     if (!selectedLanguage || !extractedText) return;
-
     setTranslating(true);
     setError(null);
 
     try {
       const response = await ocrAPI.translate(extractedText, selectedLanguage);
-      
       if (response.success) {
         setTranslatedText(response.translation?.translatedText || '');
-        setExpandedSection('translate');
       } else {
         throw new Error(response.message || 'Translation failed');
       }
     } catch (err) {
-      console.error('Translation Error:', err);
-      setError(err.message || 'Failed to translate');
+      setError(err.message);
     } finally {
       setTranslating(false);
     }
   };
 
-  /**
-   * AI Explain
-   */
+  // Explain
   const handleExplain = async () => {
-    const textToExplain = translatedText || extractedText;
-    if (!textToExplain) return;
-
+    const text = translatedText || extractedText;
+    if (!text) return;
     setExplaining(true);
     setError(null);
 
     try {
-      const response = await ocrAPI.summarize(textToExplain);
-      
+      const response = await ocrAPI.summarize(text);
       if (response.success) {
         setExplanation(response.summary || '');
-        setExpandedSection('explain');
       } else {
         throw new Error('Explanation failed');
       }
     } catch (err) {
-      console.error('Explain Error:', err);
-      setError(err.message || 'Failed to generate explanation');
+      setError(err.message);
     } finally {
       setExplaining(false);
     }
   };
 
-  /**
-   * Copy text to clipboard
-   */
-  const handleCopy = async (text) => {
+  // Copy
+  const handleCopy = async (text, section) => {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      
-      // Vibrate on success
+      setCopiedSection(section);
+      setTimeout(() => setCopiedSection(null), 2000);
       if (navigator.vibrate) navigator.vibrate(50);
     } catch (err) {
-      console.error('Copy failed:', err);
+      console.error('Copy failed');
     }
   };
 
-  /**
-   * Share all content
-   */
-  const handleShare = async () => {
-    let shareText = `📝 Extracted Text:\n${extractedText}`;
-    
-    if (translatedText) {
-      shareText += `\n\n🌐 Translation:\n${translatedText}`;
-    }
-    
-    if (explanation) {
-      shareText += `\n\n🤖 AI Explanation:\n${explanation}`;
-    }
-    
-    shareText += `\n\n— Scanned with AngelPDF`;
-
+  // Share
+  const handleShare = async (text, title) => {
+    const shareText = `${text}\n\n— Scanned with AngelPDF`;
     try {
       if (navigator.share) {
-        await navigator.share({
-          title: 'Scanned Document - AngelPDF',
-          text: shareText,
-        });
+        await navigator.share({ title, text: shareText });
       } else {
-        // Fallback: copy to clipboard
         await navigator.clipboard.writeText(shareText);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        setCopiedSection('share');
+        setTimeout(() => setCopiedSection(null), 2000);
       }
-    } catch (err) {
-      console.error('Share failed:', err);
-    }
+    } catch (err) {}
   };
 
-  /**
-   * Download as text file
-   */
-  const handleDownload = () => {
-    let content = `EXTRACTED TEXT\n${'='.repeat(50)}\n${extractedText}`;
-    
-    if (translatedText) {
-      content += `\n\n\nTRANSLATION\n${'='.repeat(50)}\n${translatedText}`;
-    }
-    
-    if (explanation) {
-      content += `\n\n\nAI EXPLANATION\n${'='.repeat(50)}\n${explanation}`;
-    }
-    
-    content += `\n\n\n— Scanned with AngelPDF`;
-
-    const blob = new Blob([content], { type: 'text/plain' });
+  // Download
+  const handleDownload = (text, filename) => {
+    const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `scan_${Date.now()}.txt`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  /**
-   * Start new scan
-   */
+  // New scan
   const handleNewScan = () => {
     setCapturedImage(null);
-    setProcessedImage(null);
     setExtractedText('');
     setTranslatedText('');
     setExplanation('');
     setSelectedLanguage('');
     setError(null);
-    setExpandedSection('extract');
     setStep(STEPS.SELECT);
   };
 
-  // ============ RENDER FUNCTIONS ============
+  // ========== RENDER ==========
 
-  /**
-   * Render select step
-   */
+  // Select screen
   const renderSelect = () => (
     <div style={styles.container}>
-      {/* Header */}
       <div style={styles.header}>
         <button style={styles.backBtn} onClick={() => navigate('/mobile')}>
-          <ArrowLeft style={{ width: '24px', height: '24px' }} />
+          <ArrowLeft size={24} />
         </button>
         <h1 style={styles.title}>Quick Scan</h1>
-        <div style={{ width: '44px' }} />
+        <div style={{ width: 44 }} />
       </div>
 
-      {/* Content */}
       <div style={styles.content}>
         <div style={styles.hero}>
           <div style={styles.heroIcon}>
-            <Camera style={{ width: '40px', height: '40px', color: '#fff' }} />
+            <Camera size={40} color="#fff" />
           </div>
-          <h2 style={styles.heroTitle}>Scan & Understand</h2>
+          <h2 style={styles.heroTitle}>Scan & Translate</h2>
           <p style={styles.heroSubtitle}>
-            Capture any document, extract text, translate to your language
+            Capture document, extract text, translate instantly
           </p>
         </div>
 
-        {/* Options */}
         <div style={styles.optionsGrid}>
-          <button 
-            style={styles.optionCard}
-            onClick={() => setStep(STEPS.CAMERA)}
-          >
-            <div style={{...styles.optionIcon, background: 'linear-gradient(135deg, #8b5cf6, #6366f1)'}}>
-              <Camera style={{ width: '28px', height: '28px', color: '#fff' }} />
+          <button style={styles.optionCard} onClick={() => setStep(STEPS.CAMERA)}>
+            <div style={{ ...styles.optionIcon, background: 'linear-gradient(135deg, #8b5cf6, #6366f1)' }}>
+              <Camera size={28} color="#fff" />
             </div>
-            <span style={styles.optionTitle}>Open Camera</span>
-            <span style={styles.optionDesc}>Take a photo</span>
+            <span style={styles.optionTitle}>Camera</span>
           </button>
 
-          <button 
-            style={styles.optionCard}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <div style={{...styles.optionIcon, background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)'}}>
-              <Upload style={{ width: '28px', height: '28px', color: '#fff' }} />
+          <button style={styles.optionCard} onClick={() => fileInputRef.current?.click()}>
+            <div style={{ ...styles.optionIcon, background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)' }}>
+              <Upload size={28} color="#fff" />
             </div>
-            <span style={styles.optionTitle}>Upload Image</span>
-            <span style={styles.optionDesc}>From gallery</span>
+            <span style={styles.optionTitle}>Upload</span>
           </button>
         </div>
 
@@ -418,312 +300,231 @@ const QuickScan = () => {
           style={{ display: 'none' }}
         />
 
-        {/* Features list */}
-        <div style={styles.featuresList}>
-          <div style={styles.featureItem}>
-            <Check style={{ width: '16px', height: '16px', color: '#10b981' }} />
-            <span>AI-powered text extraction</span>
-          </div>
-          <div style={styles.featureItem}>
-            <Check style={{ width: '16px', height: '16px', color: '#10b981' }} />
-            <span>50+ languages supported</span>
-          </div>
-          <div style={styles.featureItem}>
-            <Check style={{ width: '16px', height: '16px', color: '#10b981' }} />
-            <span>AI explanation of content</span>
-          </div>
-          <div style={styles.featureItem}>
-            <Check style={{ width: '16px', height: '16px', color: '#10b981' }} />
-            <span>100% FREE - Unlimited scans</span>
-          </div>
-        </div>
-
-        {/* Error message */}
-        {error && (
-          <div style={styles.errorBox}>
-            <AlertCircle style={{ width: '20px', height: '20px', flexShrink: 0 }} />
-            <span>{error}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  /**
-   * Render processing step with detailed status bar
-   */
-  const renderProcessing = () => (
-    <div style={styles.container}>
-      <div style={styles.processingContainer}>
-        {/* Animated icon */}
-        <div style={styles.processingIcon}>
-          <div style={styles.processingSpinnerOuter}>
-            <div style={styles.processingSpinnerInner} />
-          </div>
-          <FileText style={{ 
-            width: '32px', 
-            height: '32px', 
-            color: '#8b5cf6',
-            position: 'absolute',
-          }} />
-        </div>
-
-        {/* Status text */}
-        <h2 style={styles.processingTitle}>
-          {PROCESSING_STAGES[currentStage]?.label || 'Processing...'}
-        </h2>
-
-        {/* Progress bar */}
-        <div style={styles.progressContainer}>
-          <div style={styles.progressBar}>
-            <div 
-              style={{
-                ...styles.progressFill,
-                width: `${progress}%`,
-              }} 
-            />
-          </div>
-          <span style={styles.progressPercent}>{progress}%</span>
-        </div>
-
-        {/* Stage indicators */}
-        <div style={styles.stageIndicators}>
-          {PROCESSING_STAGES.map((stage, index) => (
-            <div 
-              key={stage.id}
-              style={{
-                ...styles.stageIndicator,
-                ...(index <= currentStage ? styles.stageIndicatorActive : {}),
-              }}
-            >
-              {index < currentStage ? (
-                <Check style={{ width: '14px', height: '14px' }} />
-              ) : (
-                <span>{index + 1}</span>
-              )}
+        <div style={styles.features}>
+          {['AI Text Extraction', '50+ Languages', 'AI Explanation', '100% FREE'].map((f, i) => (
+            <div key={i} style={styles.featureItem}>
+              <Check size={16} color="#10b981" />
+              <span>{f}</span>
             </div>
           ))}
         </div>
 
-        <p style={styles.processingHint}>
-          Please wait while we process your document
-        </p>
+        {error && (
+          <div style={styles.errorBox}>
+            <AlertCircle size={20} />
+            <span>{error}</span>
+          </div>
+        )}
       </div>
-
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes pulse {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 1; }
-        }
-      `}</style>
     </div>
   );
 
-  /**
-   * Render result step with larger windows
-   */
+  // Processing screen
+  const renderProcessing = () => (
+    <div style={styles.container}>
+      <div style={styles.processingBox}>
+        <div style={styles.spinnerWrap}>
+          <div style={styles.spinner} />
+          <FileText size={28} color="#8b5cf6" style={{ position: 'absolute' }} />
+        </div>
+        <h2 style={styles.processingTitle}>{progressText}</h2>
+        <div style={styles.progressBar}>
+          <div style={{ ...styles.progressFill, width: `${progress}%` }} />
+        </div>
+        <span style={styles.progressText}>{progress}%</span>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+
+  // Result screen
   const renderResult = () => (
     <div style={styles.container}>
-      {/* Header */}
       <div style={styles.header}>
         <button style={styles.backBtn} onClick={handleNewScan}>
-          <ArrowLeft style={{ width: '24px', height: '24px' }} />
+          <ArrowLeft size={24} />
         </button>
         <h1 style={styles.title}>Results</h1>
-        <button style={styles.newScanBtn} onClick={handleNewScan}>
-          <RotateCcw style={{ width: '20px', height: '20px' }} />
+        <button style={{ ...styles.backBtn, background: '#8b5cf6' }} onClick={handleNewScan}>
+          <RotateCcw size={20} />
         </button>
       </div>
 
       <div style={styles.resultContent}>
-        {/* ========== SECTION 1: Extracted Text ========== */}
-        <div style={styles.resultSection}>
-          <button 
-            style={styles.sectionHeader}
-            onClick={() => setExpandedSection(expandedSection === 'extract' ? '' : 'extract')}
-          >
-            <div style={styles.sectionHeaderLeft}>
-              <span style={styles.sectionIcon}>📝</span>
-              <span style={styles.sectionTitle}>Extracted Text</span>
-              <span style={styles.confidenceBadge}>{confidence}%</span>
-            </div>
-            {expandedSection === 'extract' ? (
-              <ChevronUp style={{ width: '20px', height: '20px', color: '#64748b' }} />
-            ) : (
-              <ChevronDown style={{ width: '20px', height: '20px', color: '#64748b' }} />
-            )}
-          </button>
+        {/* ===== EXTRACTED TEXT ===== */}
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionTitle}>📝 Extracted Text</span>
+            <span style={styles.badge}>{confidence}% accuracy</span>
+          </div>
           
-          {expandedSection === 'extract' && (
-            <div style={styles.sectionContent}>
-              <textarea
-                style={styles.textAreaLarge}
-                value={extractedText}
-                readOnly
-                placeholder="No text extracted"
-              />
-            </div>
-          )}
+          <textarea
+            style={styles.textArea}
+            value={extractedText}
+            readOnly
+            placeholder="No text extracted"
+          />
+          
+          <div style={styles.exportRow}>
+            <button 
+              style={styles.exportBtn} 
+              onClick={() => handleCopy(extractedText, 'extract')}
+            >
+              {copiedSection === 'extract' ? <Check size={18} color="#10b981" /> : <Copy size={18} />}
+              <span>{copiedSection === 'extract' ? 'Copied!' : 'Copy'}</span>
+            </button>
+            <button 
+              style={styles.exportBtn}
+              onClick={() => handleShare(extractedText, 'Extracted Text')}
+            >
+              <Share2 size={18} />
+              <span>Share</span>
+            </button>
+            <button 
+              style={styles.exportBtn}
+              onClick={() => handleDownload(extractedText, 'extracted_text.txt')}
+            >
+              <Download size={18} />
+              <span>Save</span>
+            </button>
+          </div>
         </div>
 
-        {/* ========== SECTION 2: Translation ========== */}
-        <div style={styles.resultSection}>
-          <button 
-            style={styles.sectionHeader}
-            onClick={() => setExpandedSection(expandedSection === 'translate' ? '' : 'translate')}
-          >
-            <div style={styles.sectionHeaderLeft}>
-              <span style={styles.sectionIcon}>🌐</span>
-              <span style={styles.sectionTitle}>Translate</span>
-              {translatedText && <span style={styles.doneBadge}>Done</span>}
-            </div>
-            {expandedSection === 'translate' ? (
-              <ChevronUp style={{ width: '20px', height: '20px', color: '#64748b' }} />
-            ) : (
-              <ChevronDown style={{ width: '20px', height: '20px', color: '#64748b' }} />
-            )}
-          </button>
+        {/* ===== TRANSLATION ===== */}
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionTitle}>🌐 Translate</span>
+          </div>
           
-          {expandedSection === 'translate' && (
-            <div style={styles.sectionContent}>
-              {/* Language selector */}
-              <div style={styles.translateRow}>
-                <select
-                  style={styles.languageSelect}
-                  value={selectedLanguage}
-                  onChange={(e) => setSelectedLanguage(e.target.value)}
-                >
-                  <option value="">Select language...</option>
-                  {LANGUAGES.map(group => (
-                    <optgroup key={group.group} label={group.group}>
-                      {group.languages.map(lang => (
-                        <option key={lang.code} value={lang.code}>{lang.name}</option>
-                      ))}
-                    </optgroup>
+          <div style={styles.translateRow}>
+            <select
+              style={styles.select}
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+            >
+              <option value="">Select language...</option>
+              {LANGUAGES.map(g => (
+                <optgroup key={g.group} label={g.group}>
+                  {g.languages.map(l => (
+                    <option key={l.code} value={l.code}>{l.name}</option>
                   ))}
-                </select>
-                
-                <button
-                  style={{
-                    ...styles.translateBtn,
-                    opacity: (!selectedLanguage || translating) ? 0.5 : 1,
-                  }}
-                  onClick={handleTranslate}
-                  disabled={!selectedLanguage || translating}
+                </optgroup>
+              ))}
+            </select>
+            <button
+              style={{
+                ...styles.translateBtn,
+                opacity: (!selectedLanguage || translating) ? 0.5 : 1,
+              }}
+              onClick={handleTranslate}
+              disabled={!selectedLanguage || translating}
+            >
+              {translating ? <Loader size={20} style={{ animation: 'spin 1s linear infinite' }} /> : <Globe size={20} />}
+            </button>
+          </div>
+
+          {translatedText && (
+            <>
+              <textarea
+                style={styles.textArea}
+                value={translatedText}
+                readOnly
+              />
+              <div style={styles.exportRow}>
+                <button 
+                  style={styles.exportBtn}
+                  onClick={() => handleCopy(translatedText, 'translate')}
                 >
-                  {translating ? (
-                    <Loader style={{ width: '18px', height: '18px', animation: 'spin 1s linear infinite' }} />
-                  ) : (
-                    <Globe style={{ width: '18px', height: '18px' }} />
-                  )}
+                  {copiedSection === 'translate' ? <Check size={18} color="#10b981" /> : <Copy size={18} />}
+                  <span>{copiedSection === 'translate' ? 'Copied!' : 'Copy'}</span>
+                </button>
+                <button 
+                  style={styles.exportBtn}
+                  onClick={() => handleShare(translatedText, 'Translation')}
+                >
+                  <Share2 size={18} />
+                  <span>Share</span>
+                </button>
+                <button 
+                  style={styles.exportBtn}
+                  onClick={() => handleDownload(translatedText, 'translation.txt')}
+                >
+                  <Download size={18} />
+                  <span>Save</span>
                 </button>
               </div>
-
-              {/* Translation result */}
-              {translatedText && (
-                <textarea
-                  style={styles.textAreaLarge}
-                  value={translatedText}
-                  readOnly
-                />
-              )}
-            </div>
+            </>
           )}
         </div>
 
-        {/* ========== SECTION 3: AI Explain ========== */}
-        <div style={styles.resultSection}>
-          <button 
-            style={styles.sectionHeader}
-            onClick={() => setExpandedSection(expandedSection === 'explain' ? '' : 'explain')}
-          >
-            <div style={styles.sectionHeaderLeft}>
-              <span style={styles.sectionIcon}>🤖</span>
-              <span style={styles.sectionTitle}>AI Explain</span>
-              {explanation && <span style={styles.doneBadge}>Done</span>}
-            </div>
-            {expandedSection === 'explain' ? (
-              <ChevronUp style={{ width: '20px', height: '20px', color: '#64748b' }} />
-            ) : (
-              <ChevronDown style={{ width: '20px', height: '20px', color: '#64748b' }} />
-            )}
-          </button>
-          
-          {expandedSection === 'explain' && (
-            <div style={styles.sectionContent}>
-              {!explanation ? (
-                <button
-                  style={{
-                    ...styles.explainBtn,
-                    opacity: explaining ? 0.5 : 1,
-                  }}
-                  onClick={handleExplain}
-                  disabled={explaining}
-                >
-                  {explaining ? (
-                    <Loader style={{ width: '20px', height: '20px', animation: 'spin 1s linear infinite' }} />
-                  ) : (
-                    <Sparkles style={{ width: '20px', height: '20px' }} />
-                  )}
-                  {explaining ? 'Generating...' : 'Explain This Content'}
-                </button>
+        {/* ===== AI EXPLAIN ===== */}
+        <div style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionTitle}>🤖 AI Explanation</span>
+          </div>
+
+          {!explanation ? (
+            <button
+              style={{
+                ...styles.explainBtn,
+                opacity: explaining ? 0.5 : 1,
+              }}
+              onClick={handleExplain}
+              disabled={explaining}
+            >
+              {explaining ? (
+                <Loader size={20} style={{ animation: 'spin 1s linear infinite' }} />
               ) : (
-                <div style={styles.explanationBox}>
-                  <p style={styles.explanationText}>{explanation}</p>
-                </div>
+                <Sparkles size={20} />
               )}
-            </div>
+              <span>{explaining ? 'Generating...' : 'Explain This Content'}</span>
+            </button>
+          ) : (
+            <>
+              <div style={styles.explanationBox}>
+                <p style={styles.explanationText}>{explanation}</p>
+              </div>
+              <div style={styles.exportRow}>
+                <button 
+                  style={styles.exportBtn}
+                  onClick={() => handleCopy(explanation, 'explain')}
+                >
+                  {copiedSection === 'explain' ? <Check size={18} color="#10b981" /> : <Copy size={18} />}
+                  <span>{copiedSection === 'explain' ? 'Copied!' : 'Copy'}</span>
+                </button>
+                <button 
+                  style={styles.exportBtn}
+                  onClick={() => handleShare(explanation, 'AI Explanation')}
+                >
+                  <Share2 size={18} />
+                  <span>Share</span>
+                </button>
+                <button 
+                  style={styles.exportBtn}
+                  onClick={() => handleDownload(explanation, 'explanation.txt')}
+                >
+                  <Download size={18} />
+                  <span>Save</span>
+                </button>
+              </div>
+            </>
           )}
         </div>
 
-        {/* Error */}
         {error && (
           <div style={styles.errorBox}>
-            <AlertCircle style={{ width: '20px', height: '20px', flexShrink: 0 }} />
+            <AlertCircle size={20} />
             <span>{error}</span>
           </div>
         )}
-
-        {/* ========== EXPORT SECTION (at bottom) ========== */}
-        <div style={styles.exportSection}>
-          <p style={styles.exportTitle}>Export & Share</p>
-          <div style={styles.exportButtons}>
-            <button 
-              style={styles.exportBtn}
-              onClick={() => handleCopy(translatedText || extractedText)}
-            >
-              {copied ? (
-                <Check style={{ width: '20px', height: '20px', color: '#10b981' }} />
-              ) : (
-                <Copy style={{ width: '20px', height: '20px' }} />
-              )}
-              <span>{copied ? 'Copied!' : 'Copy'}</span>
-            </button>
-            
-            <button style={styles.exportBtn} onClick={handleShare}>
-              <Share2 style={{ width: '20px', height: '20px' }} />
-              <span>Share</span>
-            </button>
-            
-            <button style={styles.exportBtn} onClick={handleDownload}>
-              <Download style={{ width: '20px', height: '20px' }} />
-              <span>Download</span>
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
 
-  // ============ MAIN RENDER ============
-
+  // Main render
   return (
     <>
       {step === STEPS.SELECT && renderSelect()}
-      
       {step === STEPS.CAMERA && (
         <CameraScanner
           onComplete={handleCameraComplete}
@@ -731,7 +532,6 @@ const QuickScan = () => {
           batchMode={false}
         />
       )}
-      
       {step === STEPS.CROP && capturedImage && (
         <CropTool
           image={capturedImage}
@@ -739,339 +539,258 @@ const QuickScan = () => {
           onCancel={() => setStep(STEPS.SELECT)}
         />
       )}
-      
       {step === STEPS.PROCESSING && renderProcessing()}
-      
       {step === STEPS.RESULT && renderResult()}
     </>
   );
 };
 
-// ============ STYLES ============
-
+// ========== STYLES ==========
 const styles = {
   container: {
     minHeight: '100vh',
     background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
     color: '#fff',
   },
-
-  // Header
   header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '16px 20px',
-    paddingTop: '50px',
-    borderBottom: '1px solid rgba(255,255,255,0.1)',
-    background: 'rgba(15, 23, 42, 0.9)',
+    padding: '14px 20px',
+    paddingTop: 50,
+    background: 'rgba(15,23,42,0.95)',
     backdropFilter: 'blur(10px)',
     position: 'sticky',
     top: 0,
     zIndex: 100,
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
   },
   backBtn: {
-    width: '44px',
-    height: '44px',
-    borderRadius: '12px',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     background: 'rgba(255,255,255,0.1)',
     border: 'none',
     color: '#fff',
-    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    cursor: 'pointer',
   },
   title: {
-    fontSize: '18px',
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: 600,
   },
-  newScanBtn: {
-    width: '44px',
-    height: '44px',
-    borderRadius: '12px',
-    background: '#8b5cf6',
-    border: 'none',
-    color: '#fff',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // Content
   content: {
-    padding: '24px 20px',
-    paddingBottom: '100px',
+    padding: '24px 20px 100px',
   },
-
-  // Hero
   hero: {
     textAlign: 'center',
-    marginBottom: '32px',
+    marginBottom: 32,
   },
   heroIcon: {
-    width: '80px',
-    height: '80px',
-    borderRadius: '24px',
-    background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     margin: '0 auto 16px',
-    boxShadow: '0 10px 40px rgba(139, 92, 246, 0.3)',
+    boxShadow: '0 10px 40px rgba(139,92,246,0.3)',
   },
   heroTitle: {
-    fontSize: '24px',
-    fontWeight: '700',
-    marginBottom: '8px',
+    fontSize: 24,
+    fontWeight: 700,
+    marginBottom: 8,
   },
   heroSubtitle: {
-    fontSize: '15px',
+    fontSize: 15,
     color: '#94a3b8',
-    lineHeight: '1.5',
   },
-
-  // Options
   optionsGrid: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: '16px',
-    marginBottom: '32px',
+    gap: 16,
+    marginBottom: 32,
   },
   optionCard: {
-    background: 'rgba(30, 41, 59, 0.8)',
+    background: 'rgba(30,41,59,0.8)',
     border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '16px',
-    padding: '24px 16px',
-    cursor: 'pointer',
+    borderRadius: 16,
+    padding: '28px 16px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '12px',
-    transition: 'all 0.2s ease',
+    gap: 14,
+    cursor: 'pointer',
   },
   optionIcon: {
-    width: '56px',
-    height: '56px',
-    borderRadius: '16px',
+    width: 60,
+    height: 60,
+    borderRadius: 18,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
   optionTitle: {
-    fontSize: '16px',
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: 600,
   },
-  optionDesc: {
-    fontSize: '13px',
-    color: '#64748b',
-  },
-
-  // Features list
-  featuresList: {
+  features: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px',
+    gap: 12,
   },
   featureItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '12px',
-    fontSize: '14px',
+    gap: 12,
+    fontSize: 14,
     color: '#94a3b8',
   },
 
   // Processing
-  processingContainer: {
+  processingBox: {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
-    padding: '40px 24px',
+    padding: 40,
   },
-  processingIcon: {
+  spinnerWrap: {
     position: 'relative',
-    width: '80px',
-    height: '80px',
+    width: 80,
+    height: 80,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: '24px',
+    marginBottom: 24,
   },
-  processingSpinnerOuter: {
+  spinner: {
     position: 'absolute',
-    width: '80px',
-    height: '80px',
-    border: '3px solid rgba(139, 92, 246, 0.2)',
+    width: 80,
+    height: 80,
+    border: '3px solid rgba(139,92,246,0.2)',
     borderTopColor: '#8b5cf6',
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   },
-  processingSpinnerInner: {
-    position: 'absolute',
-    width: '60px',
-    height: '60px',
-    border: '3px solid rgba(139, 92, 246, 0.1)',
-    borderBottomColor: '#6366f1',
-    borderRadius: '50%',
-    animation: 'spin 1.5s linear infinite reverse',
-  },
   processingTitle: {
-    fontSize: '18px',
-    fontWeight: '600',
-    marginBottom: '24px',
-    textAlign: 'center',
-  },
-  progressContainer: {
-    width: '100%',
-    maxWidth: '280px',
-    marginBottom: '24px',
+    fontSize: 18,
+    fontWeight: 600,
+    marginBottom: 24,
   },
   progressBar: {
-    width: '100%',
-    height: '8px',
+    width: 240,
+    height: 8,
     background: 'rgba(255,255,255,0.1)',
-    borderRadius: '4px',
+    borderRadius: 4,
     overflow: 'hidden',
-    marginBottom: '8px',
+    marginBottom: 8,
   },
   progressFill: {
     height: '100%',
     background: 'linear-gradient(90deg, #8b5cf6, #06b6d4)',
-    borderRadius: '4px',
-    transition: 'width 0.3s ease-out',
+    borderRadius: 4,
+    transition: 'width 0.2s',
   },
-  progressPercent: {
-    display: 'block',
-    textAlign: 'center',
-    fontSize: '14px',
+  progressText: {
+    fontSize: 14,
     color: '#64748b',
-  },
-  stageIndicators: {
-    display: 'flex',
-    gap: '12px',
-    marginBottom: '24px',
-  },
-  stageIndicator: {
-    width: '28px',
-    height: '28px',
-    borderRadius: '14px',
-    background: 'rgba(255,255,255,0.1)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '12px',
-    color: '#64748b',
-    transition: 'all 0.3s ease',
-  },
-  stageIndicatorActive: {
-    background: '#8b5cf6',
-    color: '#fff',
-  },
-  processingHint: {
-    fontSize: '14px',
-    color: '#64748b',
-    textAlign: 'center',
   },
 
-  // Result
+  // Results
   resultContent: {
-    padding: '16px 20px',
-    paddingBottom: '120px',
+    padding: '16px 20px 120px',
   },
-
-  // Result sections
-  resultSection: {
-    background: 'rgba(30, 41, 59, 0.6)',
+  section: {
+    background: 'rgba(30,41,59,0.7)',
     border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '16px',
-    marginBottom: '12px',
-    overflow: 'hidden',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
   },
   sectionHeader: {
-    width: '100%',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '16px',
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    color: '#fff',
-  },
-  sectionHeaderLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-  },
-  sectionIcon: {
-    fontSize: '20px',
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: '16px',
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 600,
   },
-  confidenceBadge: {
-    fontSize: '11px',
-    background: 'rgba(16, 185, 129, 0.2)',
+  badge: {
+    fontSize: 11,
+    background: 'rgba(16,185,129,0.2)',
     color: '#10b981',
-    padding: '3px 8px',
-    borderRadius: '10px',
-  },
-  doneBadge: {
-    fontSize: '11px',
-    background: 'rgba(139, 92, 246, 0.2)',
-    color: '#a78bfa',
-    padding: '3px 8px',
-    borderRadius: '10px',
-  },
-  sectionContent: {
-    padding: '0 16px 16px',
+    padding: '4px 10px',
+    borderRadius: 10,
   },
 
-  // Text area (LARGER)
-  textAreaLarge: {
+  // TEXT AREA - MUCH BIGGER
+  textArea: {
     width: '100%',
-    minHeight: '180px',
-    background: 'rgba(0,0,0,0.3)',
+    minHeight: 250,
+    background: 'rgba(0,0,0,0.4)',
     border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '12px',
-    padding: '14px',
+    borderRadius: 12,
+    padding: 16,
     color: '#e5e7eb',
-    fontSize: '15px',
-    lineHeight: '1.7',
+    fontSize: 16,
+    lineHeight: 1.8,
     resize: 'vertical',
     fontFamily: 'inherit',
+    marginBottom: 12,
   },
 
-  // Translation
+  // Export row
+  exportRow: {
+    display: 'flex',
+    gap: 10,
+  },
+  exportBtn: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    background: 'rgba(255,255,255,0.1)',
+    border: 'none',
+    borderRadius: 10,
+    padding: '12px 8px',
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+  },
+
+  // Translate
   translateRow: {
     display: 'flex',
-    gap: '10px',
-    marginBottom: '12px',
+    gap: 10,
+    marginBottom: 12,
   },
-  languageSelect: {
+  select: {
     flex: 1,
-    background: 'rgba(0,0,0,0.3)',
+    background: 'rgba(0,0,0,0.4)',
     border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '12px',
-    padding: '12px 14px',
+    borderRadius: 12,
+    padding: '14px 16px',
     color: '#fff',
-    fontSize: '14px',
+    fontSize: 15,
   },
   translateBtn: {
-    width: '50px',
-    height: '50px',
+    width: 54,
+    height: 54,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
     border: 'none',
-    borderRadius: '12px',
+    borderRadius: 12,
     color: '#fff',
     cursor: 'pointer',
   },
@@ -1082,74 +801,42 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '10px',
-    background: 'rgba(245, 158, 11, 0.15)',
-    border: '1px solid rgba(245, 158, 11, 0.3)',
-    borderRadius: '12px',
-    padding: '16px',
+    gap: 10,
+    background: 'rgba(245,158,11,0.15)',
+    border: '1px solid rgba(245,158,11,0.3)',
+    borderRadius: 12,
+    padding: 16,
     color: '#fbbf24',
-    fontSize: '15px',
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: 600,
     cursor: 'pointer',
   },
   explanationBox: {
-    background: 'rgba(139, 92, 246, 0.1)',
-    border: '1px solid rgba(139, 92, 246, 0.2)',
-    borderRadius: '12px',
-    padding: '16px',
+    background: 'rgba(139,92,246,0.1)',
+    border: '1px solid rgba(139,92,246,0.2)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
   },
   explanationText: {
     color: '#e5e7eb',
-    fontSize: '15px',
-    lineHeight: '1.7',
+    fontSize: 16,
+    lineHeight: 1.8,
     margin: 0,
-  },
-
-  // Export section
-  exportSection: {
-    marginTop: '24px',
-    padding: '20px',
-    background: 'rgba(30, 41, 59, 0.8)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '16px',
-  },
-  exportTitle: {
-    fontSize: '14px',
-    color: '#64748b',
-    marginBottom: '16px',
-    textAlign: 'center',
-  },
-  exportButtons: {
-    display: 'flex',
-    gap: '12px',
-  },
-  exportBtn: {
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '8px',
-    background: 'rgba(255,255,255,0.1)',
-    border: 'none',
-    borderRadius: '12px',
-    padding: '16px 12px',
-    color: '#fff',
-    fontSize: '13px',
-    cursor: 'pointer',
   },
 
   // Error
   errorBox: {
     display: 'flex',
-    alignItems: 'flex-start',
-    gap: '12px',
-    background: 'rgba(239, 68, 68, 0.1)',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    borderRadius: '12px',
-    padding: '14px',
+    alignItems: 'center',
+    gap: 12,
+    background: 'rgba(239,68,68,0.1)',
+    border: '1px solid rgba(239,68,68,0.3)',
+    borderRadius: 12,
+    padding: 14,
     color: '#f87171',
-    fontSize: '14px',
-    marginTop: '16px',
+    fontSize: 14,
+    marginTop: 16,
   },
 };
 
