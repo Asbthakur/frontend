@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { DeviceProvider, useDevice } from './context/DeviceContext';
 
 // Pages
 import Landing from './pages/Landing';
@@ -19,6 +20,10 @@ import AdminUsers from './pages/admin/AdminUsers';
 import AdminPayments from './pages/admin/AdminPayments';
 import AdminAnalytics from './pages/admin/AdminAnalytics';
 import AdminSystem from './pages/admin/AdminSystem';
+
+// Mobile Pages
+import MobileHome from './mobile/MobileHome';
+import QuickScan from './mobile/QuickScan';
 
 // Components
 import Layout from './components/Layout';
@@ -48,10 +53,61 @@ const PublicRoute = ({ children }) => {
 };
 
 function AppRoutes() {
+  const { isMobile, isDetecting } = useDevice();
+
+  // Show loading while detecting device
+  if (isDetecting) {
+    return <LoadingScreen />;
+  }
+
   return (
     <Routes>
-      {/* Public Routes */}
-      <Route path="/" element={<Landing />} />
+      {/* ============ MOBILE ROUTES ============ */}
+      {/* These routes are ONLY for mobile users */}
+      
+      {/* Mobile Home - redirects mobile users from root */}
+      <Route 
+        path="/mobile" 
+        element={isMobile ? <MobileHome /> : <Navigate to="/" replace />} 
+      />
+      
+      {/* Mobile Feature 1: Quick Scan & Translate */}
+      <Route 
+        path="/mobile/quick-scan" 
+        element={isMobile ? <QuickScan /> : <Navigate to="/scanner" replace />} 
+      />
+      
+      {/* Mobile Feature 2: Create PDF (coming soon) */}
+      <Route 
+        path="/mobile/create-pdf" 
+        element={isMobile ? <MobileHome /> : <Navigate to="/scanner" replace />} 
+      />
+      
+      {/* Mobile Feature 3: Extract Tables (coming soon) */}
+      <Route 
+        path="/mobile/extract-tables" 
+        element={isMobile ? <MobileHome /> : <Navigate to="/scanner" replace />} 
+      />
+      
+      {/* Mobile Feature 4: AI OCR Pro (coming soon) */}
+      <Route 
+        path="/mobile/ai-ocr-pro" 
+        element={isMobile ? <MobileHome /> : <Navigate to="/scanner" replace />} 
+      />
+      
+      {/* Mobile My Files (coming soon) */}
+      <Route 
+        path="/mobile/my-files" 
+        element={isMobile ? <MobileHome /> : <Navigate to="/history" replace />} 
+      />
+
+      {/* ============ PUBLIC ROUTES ============ */}
+      {/* Root path - redirect mobile users to mobile home */}
+      <Route 
+        path="/" 
+        element={isMobile ? <Navigate to="/mobile" replace /> : <Landing />} 
+      />
+      
       <Route
         path="/login"
         element={
@@ -62,13 +118,17 @@ function AppRoutes() {
       />
       <Route path="/pricing" element={<Pricing />} />
       
-      {/* Scanner - Now PUBLIC (no login required) */}
+      {/* Scanner - redirect mobile users to mobile quick scan */}
       <Route
         path="/scanner"
         element={
-          <Layout>
-            <Scanner />
-          </Layout>
+          isMobile ? (
+            <Navigate to="/mobile/quick-scan" replace />
+          ) : (
+            <Layout>
+              <Scanner />
+            </Layout>
+          )
         }
       />
       
@@ -186,7 +246,9 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <DeviceProvider>
+          <AppRoutes />
+        </DeviceProvider>
       </AuthProvider>
     </BrowserRouter>
   );
