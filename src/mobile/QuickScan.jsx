@@ -1,13 +1,14 @@
 /**
  * QuickScan.jsx - Feature 1: Quick Scan & Translate
  * 
- * Flow: Camera → Crop → Process → Results
- * 
- * Each section has its own COPY button
- * Larger text areas for better readability
+ * OPTIMIZED VERSION:
+ * - Grayscale + Compress image before upload
+ * - Typing animation for extracted text
+ * - Progress stages with status messages
+ * - Separate Copy buttons for each section
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ocrAPI } from '../services/api';
 import CameraScanner from './components/CameraScanner';
@@ -26,6 +27,7 @@ import {
   Share2,
   Download,
   FileText,
+  Zap,
 } from 'lucide-react';
 
 // Languages
@@ -54,9 +56,85 @@ const LANGUAGES = [
 
 const STEPS = { SELECT: 1, CAMERA: 2, CROP: 3, PROCESSING: 4, RESULT: 5 };
 
+/**
+ * Convert image to grayscale and compress
+ * @param {File|Blob} imageFile - Original image
+ * @param {number} quality - JPEG quality (0-1)
+ * @param {number} maxWidth - Max width in pixels
+ * @returns {Promise<Blob>} - Compressed grayscale image
+ */
+const processImage = (imageFile, quality = 0.7, maxWidth = 1200) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(imageFile);
+    
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      
+      // Calculate dimensions
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > maxWidth) {
+        height = (height * maxWidth) / width;
+        width = maxWidth;
+      }
+      
+      // Create canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw image
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Convert to grayscale
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      
+      for (let i = 0; i < data.length; i += 4) {
+        // Weighted grayscale (better for text)
+        const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+        data[i] = gray;     // R
+        data[i + 1] = gray; // G
+        data[i + 2] = gray; // B
+        // Alpha stays the same
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+      
+      // Increase contrast for better OCR
+      ctx.globalCompositeOperation = 'source-over';
+      
+      // Export as JPEG
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            console.log(`[Image] Original: ${Math.round(imageFile.size/1024)}KB → Processed: ${Math.round(blob.size/1024)}KB`);
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to process image'));
+          }
+        },
+        'image/jpeg',
+        quality
+      );
+    };
+    
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load image'));
+    };
+    
+    img.src = url;
+  });
+};
+
 const QuickScan = () => {
   const navigate = useNavigate();
   const fileRef = useRef(null);
+  const typingRef = useRef(null);
 
   // Flow
   const [step, setStep] = useState(STEPS.SELECT);
@@ -69,15 +147,50 @@ const QuickScan = () => {
 
   // Results
   const [extractedText, setExtractedText] = useState('');
+  const [displayedText, setDisplayedText] = useState(''); // For typing animation
+  const [isTyping, setIsTyping] = useState(false);
   const [confidence, setConfidence] = useState(0);
   const [translatedText, setTranslatedText] = useState('');
+  const [displayedTranslation, setDisplayedTranslation] = useState('');
   const [explanation, setExplanation] = useState('');
+  const [displayedExplanation, setDisplayedExplanation] = useState('');
 
   // UI
   const [selectedLang, setSelectedLang] = useState('');
   const [translating, setTranslating] = useState(false);
   const [explaining, setExplaining] = useState(false);
   const [copiedSection, setCopiedSection] = useState('');
+
+  // Typing animation hook
+  const typeText = useCallback((fullText, setDisplayFn, speed = 15) => {
+    return new Promise((resolve) => {
+      let index = 0;
+      setIsTyping(true);
+      setDisplayFn('');
+      
+      const type = () => {
+        if (index < fullText.length) {
+          // Type multiple characters at once for faster feel
+          const charsToAdd = Math.min(3, fullText.length - index);
+          setDisplayFn(fullText.substring(0, index + charsToAdd));
+          index += charsToAdd;
+          typingRef.current = setTimeout(type, speed);
+        } else {
+          setIsTyping(false);
+          resolve();
+        }
+      };
+      
+      type();
+    });
+  }, []);
+
+  // Cleanup typing on unmount
+  useEffect(() => {
+    return () => {
+      if (typingRef.current) clearTimeout(typingRef.current);
+    };
+  }, []);
 
   // File upload
   const handleFileUpload = (e) => {
@@ -100,45 +213,85 @@ const QuickScan = () => {
   const handleCropComplete = async (data) => {
     setStep(STEPS.PROCESSING);
     setProgress(0);
-    setStatusText('Uploading...');
+    setStatusText('Preparing image...');
     setError(null);
 
     try {
-      // Animate progress
-      setProgress(20);
-      setStatusText('Extracting text...');
+      // STEP 1: Process image (grayscale + compress)
+      setProgress(5);
+      setStatusText('🔄 Converting to grayscale...');
       
-      const response = await ocrAPI.extractText(data.image || capturedImage);
+      const originalImage = data.image || capturedImage;
+      let processedImage;
       
-      setProgress(90);
-      setStatusText('Almost done...');
+      try {
+        processedImage = await processImage(originalImage, 0.75, 1400);
+        setProgress(15);
+        setStatusText('✅ Image optimized!');
+      } catch (err) {
+        console.warn('Image processing failed, using original:', err);
+        processedImage = originalImage;
+      }
       
       await new Promise(r => setTimeout(r, 300));
-      setProgress(100);
+      
+      // STEP 2: Upload
+      setProgress(20);
+      setStatusText('📤 Uploading image...');
+      
+      // STEP 3: OCR
+      setProgress(30);
+      setStatusText('🔍 Extracting text...');
+      
+      // Simulate progress during API call
+      const progressInterval = setInterval(() => {
+        setProgress(p => Math.min(p + 5, 75));
+      }, 500);
+      
+      const response = await ocrAPI.extractText(processedImage);
+      
+      clearInterval(progressInterval);
+      setProgress(80);
+      setStatusText('✨ Text extracted!');
+      
+      await new Promise(r => setTimeout(r, 200));
 
-      if (response.success) {
-        setExtractedText(response.text || '');
+      if (response.success && response.text) {
+        setExtractedText(response.text);
         setConfidence(response.confidence || 95);
+        setProgress(85);
+        setStatusText('📝 Displaying results...');
+        
+        // Move to result screen
         setStep(STEPS.RESULT);
+        
+        // Start typing animation
+        await typeText(response.text, setDisplayedText, 12);
+        setProgress(100);
+        
       } else {
-        throw new Error(response.error || 'OCR failed');
+        throw new Error(response.error || 'No text found in image');
       }
     } catch (err) {
+      console.error('OCR Error:', err);
       setError(err.message || 'Failed to extract text');
       setStep(STEPS.SELECT);
     }
   };
 
-  // Translate
+  // Translate with typing animation
   const handleTranslate = async () => {
     if (!selectedLang || !extractedText) return;
     setTranslating(true);
     setError(null);
+    setDisplayedTranslation('');
 
     try {
       const response = await ocrAPI.translate(extractedText, selectedLang);
-      if (response.success) {
-        setTranslatedText(response.translation?.translatedText || '');
+      if (response.success && response.translation?.translatedText) {
+        setTranslatedText(response.translation.translatedText);
+        // Type out translation
+        await typeText(response.translation.translatedText, setDisplayedTranslation, 12);
       } else {
         throw new Error('Translation failed');
       }
@@ -149,17 +302,20 @@ const QuickScan = () => {
     }
   };
 
-  // AI Explain
+  // AI Explain with typing animation
   const handleExplain = async () => {
     const text = translatedText || extractedText;
     if (!text) return;
     setExplaining(true);
     setError(null);
+    setDisplayedExplanation('');
 
     try {
       const response = await ocrAPI.summarize(text);
-      if (response.success) {
-        setExplanation(response.summary || '');
+      if (response.success && response.summary) {
+        setExplanation(response.summary);
+        // Type out explanation
+        await typeText(response.summary, setDisplayedExplanation, 10);
       } else {
         throw new Error('Explanation failed');
       }
@@ -168,6 +324,18 @@ const QuickScan = () => {
     } finally {
       setExplaining(false);
     }
+  };
+
+  // Skip typing animation
+  const skipTyping = () => {
+    if (typingRef.current) {
+      clearTimeout(typingRef.current);
+      typingRef.current = null;
+    }
+    setIsTyping(false);
+    setDisplayedText(extractedText);
+    setDisplayedTranslation(translatedText);
+    setDisplayedExplanation(explanation);
   };
 
   // Copy to clipboard
@@ -215,12 +383,17 @@ const QuickScan = () => {
 
   // New scan
   const handleNewScan = () => {
+    if (typingRef.current) clearTimeout(typingRef.current);
     setCapturedImage(null);
     setExtractedText('');
+    setDisplayedText('');
     setTranslatedText('');
+    setDisplayedTranslation('');
     setExplanation('');
+    setDisplayedExplanation('');
     setSelectedLang('');
     setError(null);
+    setIsTyping(false);
     setStep(STEPS.SELECT);
   };
 
@@ -244,6 +417,13 @@ const QuickScan = () => {
           </div>
           <h2 style={styles.heroTitle}>Scan & Translate</h2>
           <p style={styles.heroSub}>Take a photo, extract text, translate instantly</p>
+        </div>
+
+        {/* Feature badges */}
+        <div style={styles.badges}>
+          <span style={styles.badge}><Zap size={12} /> Fast OCR</span>
+          <span style={styles.badge}>🌐 50+ Languages</span>
+          <span style={styles.badge}>🤖 AI Explain</span>
         </div>
 
         <div style={styles.options}>
@@ -280,16 +460,26 @@ const QuickScan = () => {
   const renderProcessing = () => (
     <div style={styles.container}>
       <div style={styles.processingBox}>
-        <div style={styles.spinner}>
-          <FileText size={32} color="#8b5cf6" />
+        <div style={styles.spinnerContainer}>
+          <div style={styles.spinner}></div>
+          <FileText size={28} color="#8b5cf6" style={styles.spinnerIcon} />
         </div>
         <h2 style={styles.processingTitle}>{statusText}</h2>
         <div style={styles.progressBar}>
           <div style={{ ...styles.progressFill, width: `${progress}%` }} />
         </div>
         <span style={styles.progressText}>{progress}%</span>
+        <p style={styles.processingHint}>
+          {progress < 20 && 'Optimizing image for better accuracy...'}
+          {progress >= 20 && progress < 50 && 'Sending to AI for text extraction...'}
+          {progress >= 50 && progress < 80 && 'AI is reading your document...'}
+          {progress >= 80 && 'Almost done!'}
+        </p>
       </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+      `}</style>
     </div>
   );
 
@@ -307,28 +497,38 @@ const QuickScan = () => {
       </div>
 
       <div style={styles.resultContent}>
+        {/* Skip typing button */}
+        {isTyping && (
+          <button style={styles.skipBtn} onClick={skipTyping}>
+            Skip Animation →
+          </button>
+        )}
+
         {/* SECTION 1: Extracted Text */}
         <div style={styles.section}>
           <div style={styles.sectionHeader}>
             <div style={styles.sectionLeft}>
               <span style={styles.sectionEmoji}>📝</span>
               <span style={styles.sectionTitle}>Extracted Text</span>
-              <span style={styles.badge}>{confidence}%</span>
+              <span style={styles.confidenceBadge}>{confidence}%</span>
             </div>
             <button 
               style={styles.copyBtn} 
               onClick={() => handleCopy(extractedText, 'extract')}
+              disabled={isTyping}
             >
               {copiedSection === 'extract' ? <Check size={16} color="#10b981" /> : <Copy size={16} />}
               <span>{copiedSection === 'extract' ? 'Copied!' : 'Copy'}</span>
             </button>
           </div>
-          <textarea
-            style={styles.textArea}
-            value={extractedText}
-            readOnly
-            placeholder="No text extracted"
-          />
+          <div style={styles.textAreaContainer}>
+            <div style={styles.textDisplay}>
+              {displayedText || <span style={styles.placeholder}>Extracting...</span>}
+              {isTyping && displayedText.length < extractedText.length && (
+                <span style={styles.cursor}>|</span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* SECTION 2: Translation */}
@@ -354,6 +554,7 @@ const QuickScan = () => {
               style={styles.select}
               value={selectedLang}
               onChange={(e) => setSelectedLang(e.target.value)}
+              disabled={isTyping}
             >
               <option value="">Select language...</option>
               {LANGUAGES.map(l => (
@@ -361,20 +562,26 @@ const QuickScan = () => {
               ))}
             </select>
             <button
-              style={{ ...styles.actionBtn, opacity: (!selectedLang || translating) ? 0.5 : 1 }}
+              style={{ ...styles.actionBtn, opacity: (!selectedLang || translating || isTyping) ? 0.5 : 1 }}
               onClick={handleTranslate}
-              disabled={!selectedLang || translating}
+              disabled={!selectedLang || translating || isTyping}
             >
               {translating ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Globe size={18} />}
             </button>
           </div>
 
-          {translatedText && (
-            <textarea
-              style={styles.textArea}
-              value={translatedText}
-              readOnly
-            />
+          {(displayedTranslation || translating) && (
+            <div style={styles.textAreaContainer}>
+              <div style={styles.textDisplay}>
+                {translating && !displayedTranslation && (
+                  <span style={styles.placeholder}>Translating...</span>
+                )}
+                {displayedTranslation}
+                {translating && displayedTranslation && (
+                  <span style={styles.cursor}>|</span>
+                )}
+              </div>
+            </div>
           )}
         </div>
 
@@ -396,22 +603,26 @@ const QuickScan = () => {
             )}
           </div>
 
-          {!explanation ? (
+          {!explanation && !explaining ? (
             <button
-              style={{ ...styles.explainBtn, opacity: explaining ? 0.5 : 1 }}
+              style={{ ...styles.explainBtn, opacity: (explaining || isTyping) ? 0.5 : 1 }}
               onClick={handleExplain}
-              disabled={explaining}
+              disabled={explaining || isTyping}
             >
-              {explaining ? (
-                <Loader size={20} style={{ animation: 'spin 1s linear infinite' }} />
-              ) : (
-                <Sparkles size={20} />
-              )}
-              <span>{explaining ? 'Generating...' : 'Explain This'}</span>
+              <Sparkles size={20} />
+              <span>Explain This</span>
             </button>
           ) : (
-            <div style={styles.explanationBox}>
-              <p style={styles.explanationText}>{explanation}</p>
+            <div style={styles.textAreaContainer}>
+              <div style={{ ...styles.textDisplay, background: 'rgba(139,92,246,0.1)' }}>
+                {explaining && !displayedExplanation && (
+                  <span style={styles.placeholder}>AI is thinking...</span>
+                )}
+                {displayedExplanation}
+                {explaining && displayedExplanation && (
+                  <span style={styles.cursor}>|</span>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -436,6 +647,10 @@ const QuickScan = () => {
           </button>
         </div>
       </div>
+      
+      <style>{`
+        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+      `}</style>
     </div>
   );
 
@@ -493,7 +708,7 @@ const styles = {
   content: { padding: '24px 20px', paddingBottom: 100 },
   
   // Hero
-  hero: { textAlign: 'center', marginBottom: 32 },
+  hero: { textAlign: 'center', marginBottom: 24 },
   heroIcon: {
     width: 72, height: 72, borderRadius: 20,
     background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
@@ -503,6 +718,26 @@ const styles = {
   },
   heroTitle: { fontSize: 22, fontWeight: 700, marginBottom: 8 },
   heroSub: { fontSize: 14, color: '#94a3b8' },
+
+  // Badges
+  badges: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 24,
+    flexWrap: 'wrap',
+  },
+  badge: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    background: 'rgba(139,92,246,0.15)',
+    border: '1px solid rgba(139,92,246,0.3)',
+    borderRadius: 20,
+    padding: '6px 12px',
+    fontSize: 12,
+    color: '#c4b5fd',
+  },
 
   // Options
   options: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 },
@@ -522,21 +757,45 @@ const styles = {
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     minHeight: '100vh', padding: 40,
   },
+  spinnerContainer: {
+    position: 'relative',
+    width: 80, height: 80,
+    marginBottom: 24,
+  },
   spinner: {
-    width: 72, height: 72, borderRadius: '50%',
+    position: 'absolute',
+    inset: 0,
     border: '3px solid rgba(139,92,246,0.2)',
     borderTopColor: '#8b5cf6',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    marginBottom: 24,
+    borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   },
-  processingTitle: { fontSize: 18, fontWeight: 600, marginBottom: 20 },
+  spinnerIcon: {
+    position: 'absolute',
+    top: '50%', left: '50%',
+    transform: 'translate(-50%, -50%)',
+  },
+  processingTitle: { fontSize: 18, fontWeight: 600, marginBottom: 20, textAlign: 'center' },
   progressBar: { width: '80%', maxWidth: 280, height: 8, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden', marginBottom: 8 },
   progressFill: { height: '100%', background: 'linear-gradient(90deg, #8b5cf6, #06b6d4)', borderRadius: 4, transition: 'width 0.3s ease' },
-  progressText: { fontSize: 14, color: '#64748b' },
+  progressText: { fontSize: 14, color: '#64748b', marginBottom: 16 },
+  processingHint: { fontSize: 13, color: '#64748b', textAlign: 'center', animation: 'pulse 2s ease-in-out infinite' },
 
   // Results
   resultContent: { padding: '16px 16px 120px' },
+  
+  skipBtn: {
+    display: 'block',
+    margin: '0 auto 16px',
+    background: 'rgba(139,92,246,0.2)',
+    border: '1px solid rgba(139,92,246,0.4)',
+    borderRadius: 20,
+    padding: '8px 20px',
+    color: '#c4b5fd',
+    fontSize: 13,
+    cursor: 'pointer',
+  },
+  
   section: {
     background: 'rgba(30,41,59,0.6)',
     border: '1px solid rgba(255,255,255,0.08)',
@@ -554,7 +813,13 @@ const styles = {
   sectionLeft: { display: 'flex', alignItems: 'center', gap: 10 },
   sectionEmoji: { fontSize: 20 },
   sectionTitle: { fontSize: 15, fontWeight: 600 },
-  badge: { fontSize: 11, background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '2px 8px', borderRadius: 10 },
+  confidenceBadge: { 
+    fontSize: 11, 
+    background: 'rgba(16,185,129,0.2)', 
+    color: '#10b981', 
+    padding: '2px 8px', 
+    borderRadius: 10 
+  },
   copyBtn: {
     display: 'flex', alignItems: 'center', gap: 6,
     background: 'rgba(255,255,255,0.1)',
@@ -562,19 +827,31 @@ const styles = {
     color: '#fff', fontSize: 12, cursor: 'pointer',
   },
   
-  // Text area - LARGER
-  textArea: {
-    width: '100%',
+  // Text display with typing
+  textAreaContainer: {
+    padding: 0,
+  },
+  textDisplay: {
     minHeight: 200,
+    maxHeight: 400,
+    overflowY: 'auto',
     background: 'rgba(0,0,0,0.3)',
-    border: 'none',
     padding: 16,
     color: '#e5e7eb',
     fontSize: 15,
     lineHeight: 1.8,
-    resize: 'vertical',
     fontFamily: 'inherit',
-    borderRadius: '0 0 16px 16px',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  },
+  placeholder: {
+    color: '#64748b',
+    fontStyle: 'italic',
+  },
+  cursor: {
+    color: '#8b5cf6',
+    animation: 'blink 1s step-end infinite',
+    fontWeight: 'bold',
   },
 
   // Translate
@@ -598,26 +875,15 @@ const styles = {
 
   // Explain
   explainBtn: {
-    width: '100%',
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
     background: 'rgba(245,158,11,0.15)',
     border: '1px solid rgba(245,158,11,0.3)',
     padding: 16, margin: 16,
-    marginTop: 0,
     borderRadius: 12,
     color: '#fbbf24', fontSize: 15, fontWeight: 600,
     cursor: 'pointer',
     width: 'calc(100% - 32px)',
   },
-  explanationBox: {
-    background: 'rgba(139,92,246,0.1)',
-    border: '1px solid rgba(139,92,246,0.2)',
-    borderRadius: 12,
-    padding: 16,
-    margin: 16,
-    marginTop: 0,
-  },
-  explanationText: { color: '#e5e7eb', fontSize: 15, lineHeight: 1.8, margin: 0 },
 
   // Export
   exportSection: { display: 'flex', gap: 12, marginTop: 8 },
