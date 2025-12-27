@@ -1,22 +1,12 @@
-/**
- * API Service - WITH PDF SUPPORT
- * 
- * Changes:
- * - Added pdfToImages utility import
- * - extractText now accepts PDF files and converts them automatically
- * - extractMultiple now handles PDFs
- */
-
 import axios from 'axios';
-import { isPDF, pdfToImages, processFiles } from './utils/pdfToImages';
 
-// API base URL
+// API base URL - change this for production
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 180000,
+  timeout: 180000, // 3 min default timeout for AI processing
   headers: {
     'Content-Type': 'application/json',
   },
@@ -31,7 +21,9 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    return Promise.reject(error);
+  }
 );
 
 // Response interceptor - Handle errors
@@ -39,6 +31,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // Token expired or invalid
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
@@ -46,61 +39,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-// ==================== IMAGE COMPRESSION ====================
-
-/**
- * Compress image before upload
- */
-const compressImage = async (file, maxWidth = 1200, quality = 0.7) => {
-  return new Promise((resolve) => {
-    if (file.size < 300 * 1024) {
-      resolve(file);
-      return;
-    }
-
-    const img = new Image();
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    img.onload = () => {
-      let width = img.width;
-      let height = img.height;
-      
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width);
-        width = maxWidth;
-      }
-      
-      canvas.width = width;
-      canvas.height = height;
-      
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            const compressedFile = new File([blob], file.name, {
-              type: 'image/jpeg',
-              lastModified: Date.now(),
-            });
-            console.log(`[Compress] ${Math.round(file.size/1024)}KB → ${Math.round(blob.size/1024)}KB`);
-            resolve(compressedFile);
-          } else {
-            resolve(file);
-          }
-        },
-        'image/jpeg',
-        quality
-      );
-    };
-
-    img.onerror = () => resolve(file);
-    img.src = URL.createObjectURL(file);
-  });
-};
 
 // ==================== AUTH APIs ====================
 
@@ -145,173 +83,142 @@ export const authAPI = {
 
 export const ocrAPI = {
   /**
-   * Extract text from image OR PDF
-   * If PDF is provided, converts to images first
+   * Extract text from image
+   * @param {File} imageFile - Image file to process
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - OCR result
    */
-  extractText: async (file, progressCallback) => {
-    let imageFile = file;
-    
-    // If PDF, convert first page to image
-    if (isPDF(file)) {
-      console.log('[OCR] PDF detected, converting to image...');
-      if (progressCallback) progressCallback(5);
-      
-      const images = await pdfToImages(file, { 
-        maxPages: 1,
-        onProgress: (page, total) => {
-          if (progressCallback) progressCallback(10);
-        }
-      });
-      
-      if (images.length === 0) {
-        throw new Error('Failed to convert PDF');
-      }
-      imageFile = images[0];
-    }
-    
-    // Compress image
-    const compressedFile = await compressImage(imageFile, 1200, 0.7);
-    
+  extractText: async (imageFile, progressCallback) => {
     const formData = new FormData();
-    formData.append('image', compressedFile);
+    formData.append('image', imageFile);
 
     const response = await api.post('/api/ocr/extract', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000,
+      timeout: 120000,
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(15 + Math.min(percent * 0.15, 15));
+        if (progressCallback) progressCallback(percent);
       },
     });
     
-    if (progressCallback) progressCallback(100);
     return response.data;
   },
 
   /**
    * Extract text with table detection
-   * Supports both images and PDFs
+   * @param {File} imageFile - Image file to process
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - OCR result with tables
    */
-  extractWithTables: async (file, progressCallback) => {
-    let imageFile = file;
-    
-    // If PDF, convert first page to image
-    if (isPDF(file)) {
-      console.log('[OCR] PDF detected, converting to image...');
-      if (progressCallback) progressCallback(5);
-      
-      const images = await pdfToImages(file, { maxPages: 1 });
-      if (images.length === 0) {
-        throw new Error('Failed to convert PDF');
-      }
-      imageFile = images[0];
-    }
-    
-    const compressedFile = await compressImage(imageFile, 1400, 0.75);
-    
+  extractWithTables: async (imageFile, progressCallback) => {
     const formData = new FormData();
-    formData.append('image', compressedFile);
+    formData.append('image', imageFile);
+    formData.append('detectTables', 'true');
 
-    const response = await api.post('/api/ocr/extract-with-tables', formData, {
+    const response = await api.post('/api/ocr/extract', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
+      timeout: 180000,
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(Math.min(percent * 0.3, 30));
+        if (progressCallback) progressCallback(percent);
       },
     });
     
-    if (progressCallback) progressCallback(100);
     return response.data;
   },
 
   /**
-   * Extract text from multiple files (images and/or PDFs)
-   * PDFs are converted to images automatically
+   * Extract text from multiple images
+   * @param {File[]} imageFiles - Array of image files
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - Combined OCR result
    */
-  extractMultiple: async (files, progressCallback) => {
-    // Process all files - convert PDFs to images
-    console.log(`[OCR] Processing ${files.length} file(s)...`);
-    if (progressCallback) progressCallback(5);
-    
-    const allImages = await processFiles(files, {
-      maxPages: 20,
-      onProgress: (page, total) => {
-        if (progressCallback) {
-          const pdfProgress = (page / total) * 15;
-          progressCallback(5 + pdfProgress);
-        }
-      }
-    });
-    
-    console.log(`[OCR] Total images to process: ${allImages.length}`);
-    if (progressCallback) progressCallback(20);
-    
-    // Compress all images
-    const compressedFiles = await Promise.all(
-      allImages.map(file => compressImage(file, 1200, 0.7))
-    );
-    
+  extractMultiple: async (imageFiles, progressCallback) => {
     const formData = new FormData();
-    compressedFiles.forEach((file) => formData.append('images', file));
+    imageFiles.forEach((file) => formData.append('images', file));
 
     const response = await api.post('/api/ocr/extract-multiple', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 300000,
+      timeout: 180000,
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(25 + Math.min(percent * 0.5, 50));
+        if (progressCallback) progressCallback(percent);
       },
     });
     
-    if (progressCallback) progressCallback(100);
-    return response.data;
-  },
-
-  /**
-   * Translate text
-   */
-  translate: async (text, targetLanguage, scanId = null) => {
-    const response = await api.post('/api/ocr/translate', {
-      text,
-      targetLanguage,
-      scanId,
-    });
-    return response.data;
-  },
-
-  /**
-   * Get AI explanation/summary
-   */
-  summarize: async (text, language = null) => {
-    const response = await api.post('/api/ocr/summarize', {
-      text,
-      language,
-    });
     return response.data;
   },
 
   /**
    * Create PDF from images
+   * @param {File[]} imageFiles - Array of image files
+   * @param {function} progressCallback - Progress callback (0-100)
+   * @returns {Promise<object>} - PDF result with base64 data
    */
   createPDF: async (imageFiles, progressCallback) => {
     const formData = new FormData();
-    
-    for (const file of imageFiles) {
-      const compressed = await compressImage(file, 1400, 0.8);
-      formData.append('images', compressed);
-    }
+    imageFiles.forEach((file) => formData.append('images', file));
 
     const response = await api.post('/api/ocr/create-pdf', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 180000,
+      timeout: 120000,
       onUploadProgress: (progressEvent) => {
         const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-        if (progressCallback) progressCallback(Math.min(percent * 0.5, 50));
+        if (progressCallback) progressCallback(percent);
       },
     });
     
-    if (progressCallback) progressCallback(100);
+    return response.data;
+  },
+
+  /**
+   * Translate text
+   * @param {string} text - Text to translate
+   * @param {string} targetLanguage - Target language code
+   * @param {string} scanId - Optional scan ID
+   * @returns {Promise<object>} - Translation result
+   */
+  translate: async (text, targetLanguage, scanId = null) => {
+    const response = await api.post('/api/ocr/translate', { 
+      text, 
+      targetLanguage,
+      scanId 
+    });
+    return response.data;
+  },
+
+  /**
+   * Summarize text (AI Explanation)
+   * @param {string} text - Text to summarize
+   * @param {string} language - Optional language for response
+   * @returns {Promise<object>} - Summary result
+   */
+  summarize: async (text, language = null) => {
+    const response = await api.post('/api/ocr/summarize', { text, language });
+    return response.data;
+  },
+
+  /**
+   * Get scan history
+   */
+  getScanHistory: async (page = 1, limit = 10) => {
+    const response = await api.get(`/api/ocr/history?page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
+  /**
+   * Get single scan
+   */
+  getScan: async (scanId) => {
+    const response = await api.get(`/api/ocr/scan/${scanId}`);
+    return response.data;
+  },
+
+  /**
+   * Delete scan
+   */
+  deleteScan: async (scanId) => {
+    const response = await api.delete(`/api/ocr/scan/${scanId}`);
     return response.data;
   },
 
@@ -322,21 +229,16 @@ export const ocrAPI = {
     const response = await api.get('/api/ocr/remaining');
     return response.data;
   },
-
-  /**
-   * Get scan history
-   */
-  getHistory: async (limit = 20, skip = 0) => {
-    const response = await api.get('/api/ocr/history', {
-      params: { limit, skip },
-    });
-    return response.data;
-  },
 };
 
 // ==================== PAYMENT APIs ====================
 
 export const paymentAPI = {
+  getPlans: async () => {
+    const response = await api.get('/api/payment/plans');
+    return response.data;
+  },
+
   createOrder: async (planId) => {
     const response = await api.post('/api/payment/create-order', { planId });
     return response.data;
@@ -347,8 +249,53 @@ export const paymentAPI = {
     return response.data;
   },
 
+  getPaymentHistory: async () => {
+    const response = await api.get('/api/payment/history');
+    return response.data;
+  },
+};
+
+// ==================== ADMIN APIs ====================
+
+export const adminAPI = {
+  // Dashboard
+  getDashboard: async () => {
+    const response = await api.get('/api/admin/dashboard');
+    return response.data;
+  },
+
+  // Users
+  getUsers: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const response = await api.get(`/api/admin/users?${queryString}`);
+    return response.data;
+  },
+
+  updateUser: async (userId, data) => {
+    const response = await api.put(`/api/admin/users/${userId}`, data);
+    return response.data;
+  },
+
+  deleteUser: async (userId) => {
+    const response = await api.delete(`/api/admin/users/${userId}`);
+    return response.data;
+  },
+
+  // Plans
   getPlans: async () => {
-    const response = await api.get('/api/payment/plans');
+    const response = await api.get('/api/admin/plans');
+    return response.data;
+  },
+
+  updatePlan: async (planId, data) => {
+    const response = await api.put(`/api/admin/plans/${planId}`, data);
+    return response.data;
+  },
+
+  // Transactions
+  getTransactions: async (params = {}) => {
+    const queryString = new URLSearchParams(params).toString();
+    const response = await api.get(`/api/admin/transactions?${queryString}`);
     return response.data;
   },
 };
